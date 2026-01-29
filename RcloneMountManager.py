@@ -72,14 +72,21 @@ logger.info(f"BASE_DIR = {BASE_DIR}")
 logger.info(f"REMOTES_DIR = {REMOTES_DIR}")
 logger.info(f"RCLONE PATH = {get_rclone_path()}")
 
-
-# --- UTILS ---
-def get_rclone_path():
-    """Cerca rclone nella cartella locale o nel PATH"""
-    local_bin = BASE_DIR / RCLONE_EXE
-    if local_bin.exists():
-        return str(local_bin)
-    return shutil.which("rclone") or RCLONE_EXE
+def get_icon_path():
+    """
+    Restituisce il percorso dell'icona (compatibile con exe compilato).
+    Cerca prima nella cartella MEIPASS (PyInstaller), poi in BASE_DIR.
+    """
+    # Quando compilato con PyInstaller, i file sono estratti in una cartella temp
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        base_path = Path(sys._MEIPASS)
+    else:
+        # Quando eseguito come script
+        base_path = BASE_DIR
+    
+    icon_path = base_path / "icon.ico"
+    logger.info(f"Cercando icona in: {icon_path}")
+    return icon_path if icon_path.exists() else None
 
 def create_sample_file():
     """Crea il file _sample.properties se non esiste"""
@@ -884,6 +891,18 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(f"💾 {APP_NAME} v{VERSION}")
         self.resize(1200, 500)
+        
+        # ====== IMPOSTA ICONA FINESTRA E APPLICAZIONE ======
+        icon_path = get_icon_path()
+        if icon_path and icon_path.exists():
+            app_icon = QIcon(str(icon_path))
+            self.setWindowIcon(app_icon)  # Icona della finestra
+            QApplication.instance().setWindowIcon(app_icon)  # Icona dell'app (taskbar)
+            logger.info(f"✓ Icona caricata da: {icon_path}")
+        else:
+            logger.warning(f"⚠ Icona non trovata. Cercata in: {icon_path}")
+        # ====================================================
+        
         self.controllers = {}
         
         # Setup System Tray (se supportato)
@@ -1004,11 +1023,24 @@ class MainWindow(QMainWindow):
     def _setup_tray(self):
         """Setup system tray icon"""
         if not QSystemTrayIcon.isSystemTrayAvailable():
+            logger.info("System tray non disponibile")
             return
         
         self.tray = QSystemTrayIcon(self)
-        # TODO: Add custom icon
-        # self.tray.setIcon(QIcon("icon.png"))
+        
+        # ====== CARICA ICONA PER TRAY ======
+        icon_path = get_icon_path()
+        if icon_path and icon_path.exists():
+            tray_icon = QIcon(str(icon_path))
+            self.tray.setIcon(tray_icon)
+            logger.info(f"✓ Tray icon caricata da: {icon_path}")
+        else:
+            # Fallback: usa icona di sistema
+            from PySide6.QtWidgets import QStyle
+            fallback_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+            self.tray.setIcon(fallback_icon)
+            logger.warning(f"⚠ Tray icon: usata icona di sistema (fallback)")
+        # ===================================
         
         tray_menu = QMenu()
         
