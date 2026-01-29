@@ -86,16 +86,17 @@ cp ~/.config/rclone/rclone.conf .
 ```
 rclone-mount-manager/
 ├── RcloneMountManager.py          # Main application (improved version)
-├── main.py                   # Original application
 ├── requirements.txt          # Python dependencies
 ├── rclone.conf              # rclone configuration (not included)
 ├── remotes/                 # Remote configurations
 │   ├── _sample.properties   # Example configuration (auto-created)
 │   ├── pcloud.properties    # Your remote configs
-│   └── gdrive.properties
+│   ├── gdrive.properties
+│   └── others.properties
 ├── cache/                   # VFS cache directories (per remote)
 │   ├── pcloud/
-│   └── gdrive/
+│   ├── gdrive/
+│   └── ...
 └── logs/                    # Log files (per remote + app logs)
     ├── app.log              # Application log with rotation
     ├── pcloud/
