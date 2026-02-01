@@ -101,10 +101,11 @@ jobs:
         run: >
           python -m nuitka
           --standalone --onefile
-          --windows-disable-console
+          --windows-console-mode=disable
           --windows-icon-from-ico="${{ env.ICON_FILE }}"
           --enable-plugin=pyside6
           --include-qt-plugins=sensible,styles
+          --assume-yes-for-downloads
           --output-dir=build
           --output-filename=${{ env.APP_NAME }}.exe
           "${{ env.ENTRYPOINT }}"
@@ -207,14 +208,20 @@ jobs:
 
       - name: Build with Nuitka (Windows)
         if: ${{ matrix.builder == 'nuitka' && startsWith(matrix.os,'windows') }}
+        env:
+          NUITKA_ASSUME_YES_FOR_DOWNLOADS: "1"
         run: >
           python -m nuitka
           --standalone --onefile
-          --windows-disable-console
+          --windows-console-mode=disable
           --windows-icon-from-ico="${{ env.ICON_FILE }}"
+          --enable-plugin=pyside6
+          --include-qt-plugins=sensible,styles
+          --assume-yes-for-downloads
           --output-dir=build
           --output-filename=${{ env.APP_NAME }}.exe
           "${{ env.ENTRYPOINT }}"
+
 
       - name: Build with Nuitka (Linux)
         if: ${{ matrix.builder == 'nuitka' && startsWith(matrix.os,'ubuntu') }}
