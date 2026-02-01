@@ -1,0 +1,236 @@
+name: Build & Release RcloneMountManager
+
+on:
+  workflow_dispatch:
+    inputs:
+      builder:
+        description: "Seleziona il compilatore"
+        required: true
+        default: "pyinstaller"
+        type: choice
+        options:
+          - pyinstaller
+          - nuitka
+          - both
+      os:
+        description: "Sistema operativo runner"
+        required: true
+        default: "windows"
+        type: choice
+        options:
+          - windows
+          - ubuntu
+
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write  # necessario per creare/aggiornare la Release
+
+env:
+  APP_NAME: RcloneMountManager
+  ENTRYPOINT: RcloneMountManager.py
+  ICON_FILE: icon.ico
+  PY_VERSION: "3.12"
+
+jobs:
+  # ==========================================================
+  # BUILD ON DEMAND (manuale)
+  # ==========================================================
+  build_on_demand:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    name: "Manual build (${{ inputs.builder }} on ${{ inputs.os }})"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(format('["{0}"]', inputs.os == 'windows' && 'windows-latest' || 'ubuntu-latest')) }}
+        builder: ${{ inputs.builder == 'both' && fromJSON('["pyinstaller","nuitka"]') || fromJSON(format('["{0}"]', inputs.builder)) }}
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PY_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PY_VERSION }}
+          cache: "pip"
+
+      - name: Install project requirements
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install compiler (${{ matrix.builder }})
+        run: |
+          if [ "${{ matrix.builder }}" = "pyinstaller" ]; then
+            pip install pyinstaller
+          else
+            pip install nuitka zstandard
+          fi
+        shell: bash
+
+      # (Linux) dipendenze consigliate per Nuitka
+      - name: Install OS deps (Linux only, Nuitka)
+        if: ${{ startsWith(matrix.os, 'ubuntu') && matrix.builder == 'nuitka' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y patchelf
+        shell: bash
+
+      - name: Build with PyInstaller (Windows)
+        if: ${{ matrix.builder == 'pyinstaller' && startsWith(matrix.os,'windows') }}
+        run: >
+          pyinstaller --onefile --windowed
+          --name "${{ env.APP_NAME }}"
+          --icon="${{ env.ICON_FILE }}"
+          "${{ env.ENTRYPOINT }}"
+
+      - name: Build with PyInstaller (Linux)
+        if: ${{ matrix.builder == 'pyinstaller' && startsWith(matrix.os,'ubuntu') }}
+        run: >
+          pyinstaller --onefile
+          --name "${{ env.APP_NAME }}"
+          "${{ env.ENTRYPOINT }}"
+
+      - name: Build with Nuitka (Windows)
+        if: ${{ matrix.builder == 'nuitka' && startsWith(matrix.os,'windows') }}
+        run: >
+          python -m nuitka
+          --standalone --onefile
+          --windows-disable-console
+          --windows-icon-from-ico="${{ env.ICON_FILE }}"
+          --output-dir=build
+          --output-filename=${{ env.APP_NAME }}.exe
+          "${{ env.ENTRYPOINT }}"
+
+      - name: Build with Nuitka (Linux)
+        if: ${{ matrix.builder == 'nuitka' && startsWith(matrix.os,'ubuntu') }}
+        run: >
+          python -m nuitka
+          --standalone --onefile
+          --output-dir=build
+          --output-filename=${{ env.APP_NAME }}
+          "${{ env.ENTRYPOINT }}"
+
+      - name: Collect artifact
+        run: |
+          mkdir -p release
+          if [ "${{ matrix.builder }}" = "pyinstaller" ]; then
+            # PyInstaller output
+            if [ "${{ runner.os }}" = "Windows" ]; then
+              mv "dist/${{ env.APP_NAME }}.exe" "release/${{ env.APP_NAME }}_pyinstaller_Windows.exe"
+            else
+              mv "dist/${{ env.APP_NAME }}" "release/${{ env.APP_NAME }}_pyinstaller_Linux"
+            fi
+          else
+            # Nuitka output
+            if [ "${{ runner.os }}" = "Windows" ]; then
+              mv "build/${{ env.APP_NAME }}.exe" "release/${{ env.APP_NAME }}_nuitka_Windows.exe"
+            else
+              mv "build/${{ env.APP_NAME }}" "release/${{ env.APP_NAME }}_nuitka_Linux"
+            fi
+          fi
+        shell: bash
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ env.APP_NAME }}_${{ matrix.builder }}_${{ runner.os }}"
+          path: release/*
+
+  # ==========================================================
+  # BUILD + RELEASE ON TAG
+  # ==========================================================
+  build_for_tag:
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+    name: "Tag build (${{ github.ref_name }})"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]        # puoi aggiungere ubuntu-latest in seguito
+        builder: [pyinstaller, nuitka]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PY_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PY_VERSION }}
+          cache: "pip"
+
+      - name: Install project requirements
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install compiler (${{ matrix.builder }})
+        run: |
+          if [ "${{ matrix.builder }}" = "pyinstaller" ]; then
+            pip install pyinstaller
+          else
+            pip install nuitka zstandard
+          fi
+        shell: bash
+
+      - name: Build with PyInstaller (Windows)
+        if: ${{ matrix.builder == 'pyinstaller' && startsWith(matrix.os,'windows') }}
+        run: >
+          pyinstaller --onefile --windowed
+          --name "${{ env.APP_NAME }}"
+          --icon="${{ env.ICON_FILE }}"
+          "${{ env.ENTRYPOINT }}"
+
+      - name: Build with Nuitka (Windows)
+        if: ${{ matrix.builder == 'nuitka' && startsWith(matrix.os,'windows') }}
+        run: >
+          python -m nuitka
+          --standalone --onefile
+          --windows-disable-console
+          --windows-icon-from-ico="${{ env.ICON_FILE }}"
+          --output-dir=build
+          --output-filename=${{ env.APP_NAME }}.exe
+          "${{ env.ENTRYPOINT }}"
+
+      - name: Collect artifact
+        run: |
+          mkdir -p release
+          if [ "${{ matrix.builder }}" = "pyinstaller" ]; then
+            mv "dist/${{ env.APP_NAME }}.exe" "release/${{ env.APP_NAME }}_pyinstaller_Windows_${{ github.ref_name }}.exe"
+          else
+            mv "build/${{ env.APP_NAME }}.exe" "release/${{ env.APP_NAME }}_nuitka_Windows_${{ github.ref_name }}.exe"
+          fi
+        shell: bash
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ env.APP_NAME }}_${{ matrix.builder }}_${{ runner.os }}_${{ github.ref_name }}"
+          path: release/*
+
+  publish_release:
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+    needs: build_for_tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: collected
+
+      - name: Create/Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: |
+            collected/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
