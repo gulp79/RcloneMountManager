@@ -1,0 +1,46 @@
+# To get started with Dependabot version updates, you'll need to specify which
+# package ecosystems to update and where the package manifests are located.
+# Please see the documentation for all configuration options:
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+#  # npm / yarn / pnpm
+#  - package-ecosystem: "npm"
+#    directory: "/"            # cartella con package.json
+#    schedule:
+#      interval: "weekly"      # "daily" | "weekly" | "monthly"
+#      day: "monday"           # opzionale se weekly
+#      time: "08:00"           # UTC
+#    open-pull-requests-limit: 10
+#    labels: ["deps", "automated"]
+#    commit-message:
+#      prefix: "chore"
+#      include: "scope"
+#    # Ignora major o pacchetti specifici
+#    ignore:
+#      - dependency-name: "react"
+#        update-types: ["version-update:semver-major"]
+
+  # Python (pip / pip-tools)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Se usi requirements.txt generati da pip-compile:
+    # registri-supplementari o constraints si possono gestire via manifest.
+
+#  # Docker (es. Dockerfile)
+#  - package-ecosystem: "docker"
+#    directory: "/"
+#    schedule:
+#      interval: "weekly"
+
+  # GitHub Actions (workflow in .github/workflows)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "automerge"
