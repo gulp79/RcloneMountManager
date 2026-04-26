@@ -1,7 +1,7 @@
 # Rclone Mount Manager - Python Dependencies
 
 # Qt Framework for GUI
-PySide6>=6.5.0
+PySide6>=6.11.0
 
 # Note: rclone must be installed separately
 # Windows: Download from https://rclone.org/downloads/
