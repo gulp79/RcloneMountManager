@@ -49,7 +49,7 @@ LOG_MAX_SIZE = 2 * 1024 * 1024  # 2MB
 LOG_BACKUP_COUNT = 6
 
 logging.basicConfig(
-    handlers=[RotatingFileHandler(APP_LOG, maxBytes=LOG_MAX_SIZE, backupCount=LOG_BACKUP_COUNT)],
+    handlers=[RotatingFileHandler(APP_LOG, maxBytes=LOG_MAX_SIZE, backupCount=LOG_BACKUP_COUNT, encoding='utf-8')],
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
@@ -945,10 +945,12 @@ class MainWindow(QMainWindow):
         subtitle.setStyleSheet("color: #808080; border: none;")
         header_layout.addWidget(subtitle)
         
-        sidebar_layout.addWidget(header)
+        sidebar_layout.addWidget(header, 0)
         
         # Remote List
         self.list_widget = QListWidget()
+        self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list_widget.setStyleSheet("""
             QListWidget {
                 background: transparent;
@@ -968,7 +970,7 @@ class MainWindow(QMainWindow):
             }
         """)
         self.list_widget.setSpacing(4)
-        sidebar_layout.addWidget(self.list_widget)
+        sidebar_layout.addWidget(self.list_widget, 1)
         
         # Sidebar Footer
         footer = QWidget()
@@ -995,11 +997,18 @@ class MainWindow(QMainWindow):
         """)
         footer_layout.addWidget(self.btn_refresh)
         
-        sidebar_layout.addWidget(footer)
+        sidebar_layout.addWidget(footer, 0)
         
         main_layout.addWidget(sidebar)
         
-        # --- Right Panel (Details) ---
+        # --- Right Panel (Details Area inside QScrollArea) ---
+        self.details_scroll = QScrollArea()
+        self.details_scroll.setWidgetResizable(True)
+        self.details_scroll.setFrameShape(QFrame.NoFrame)
+        self.details_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.details_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.details_scroll.setStyleSheet("QScrollArea { background-color: #1e1e1e; }")
+        
         self.details_panel = RemoteWidget()
         self.details_panel.setStyleSheet("""
             QWidget {
@@ -1007,7 +1016,8 @@ class MainWindow(QMainWindow):
                     stop:0 #1e1e1e, stop:1 #252526);
             }
         """)
-        main_layout.addWidget(self.details_panel, 1)
+        self.details_scroll.setWidget(self.details_panel)
+        main_layout.addWidget(self.details_scroll, 1)
         
         # Load data
         create_sample_file()
@@ -1075,18 +1085,26 @@ class MainWindow(QMainWindow):
                 item_widget.clicked.connect(self.on_remote_clicked)
                 
                 item = QListWidgetItem(self.list_widget)
-                item.setSizeHint(item_widget.sizeHint())
+                item.setSizeHint(QSize(250, 45))
                 self.list_widget.addItem(item)
                 self.list_widget.setItemWidget(item, item_widget)
             except Exception as e:
                 logger.error(f"Error loading remote {f}: {e}")
         
         logger.info(f"Loaded {len(self.controllers)} remotes")
-
+ 
     def on_remote_clicked(self, remote_id):
         if remote_id in self.controllers:
             self.details_panel.load_remote(self.controllers[remote_id])
             logger.info(f"Selected remote: {remote_id}")
+            
+            # Select the corresponding item in the list widget for highlight synchronization
+            for i in range(self.list_widget.count()):
+                item = self.list_widget.item(i)
+                widget = self.list_widget.itemWidget(item)
+                if isinstance(widget, RemoteListItem) and widget.remote_id == remote_id:
+                    self.list_widget.setCurrentItem(item)
+                    break
 
     def check_processes(self):
         """Check if processes died externally and update UI"""
@@ -1169,6 +1187,7 @@ def apply_modern_dark_theme(app):
             background: #1e1e1e;
             width: 12px;
             margin: 0px;
+            border: none;
         }
         QScrollBar::handle:vertical {
             background: #4a4a4a;
@@ -1179,12 +1198,18 @@ def apply_modern_dark_theme(app):
             background: #5a5a5a;
         }
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            border: none;
+            background: none;
             height: 0px;
+        }
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+            background: none;
         }
         QScrollBar:horizontal {
             background: #1e1e1e;
             height: 12px;
             margin: 0px;
+            border: none;
         }
         QScrollBar::handle:horizontal {
             background: #4a4a4a;
@@ -1195,7 +1220,12 @@ def apply_modern_dark_theme(app):
             background: #5a5a5a;
         }
         QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+            border: none;
+            background: none;
             width: 0px;
+        }
+        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+            background: none;
         }
     """)
 
