@@ -338,9 +338,10 @@ class RemoteController:
 
 class StatusIndicator(QLabel):
     """Indicatore di stato moderno con colore e animazione"""
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, size=10):
         super().__init__(parent)
-        self.setFixedSize(12, 12)
+        self.size = size
+        self.setFixedSize(size, size)
         self.status = "stopped"
         self.update_status("stopped")
         
@@ -352,11 +353,12 @@ class StatusIndicator(QLabel):
             "error": "#F44336"
         }
         color = colors.get(status, "#757575")
+        radius = max(2, self.size // 2)
         self.setStyleSheet(f"""
             QLabel {{
                 background-color: {color};
-                border-radius: 6px;
-                border: 2px solid rgba(255, 255, 255, 0.2);
+                border-radius: {radius}px;
+                border: 1px solid rgba(255, 255, 255, 0.25);
             }}
         """)
 
@@ -424,7 +426,7 @@ class ModernCard(QFrame):
         """)
 
 class RemoteListItem(QWidget):
-    """Widget personalizzato per item della lista remotes"""
+    """Widget personalizzato per item della lista remotes (modalità compatta)"""
     clicked = Signal(str)
     
     def __init__(self, remote_id, name, parent=None):
@@ -432,28 +434,29 @@ class RemoteListItem(QWidget):
         self.remote_id = remote_id
         
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(12)
+        layout.setContentsMargins(8, 2, 8, 2)
+        layout.setSpacing(8)
+        layout.setAlignment(Qt.AlignVCenter)
         
         # Status indicator
-        self.status_indicator = StatusIndicator()
+        self.status_indicator = StatusIndicator(size=10)
         layout.addWidget(self.status_indicator)
         
         # Icon
         icon_label = QLabel("💾")
-        icon_label.setFont(QFont("Segoe UI Emoji", 12))
+        icon_label.setFont(QFont("Segoe UI Emoji", 10))
         layout.addWidget(icon_label)
         
         # Name
         name_label = QLabel(name)
-        name_label.setFont(QFont("Segoe UI", 10, QFont.Medium))
+        name_label.setFont(QFont("Segoe UI", 9, QFont.Medium))
         name_label.setStyleSheet("color: #ffffff;")
         layout.addWidget(name_label, 1)
         
         self.setStyleSheet("""
             QWidget {
                 background: transparent;
-                border-radius: 8px;
+                border-radius: 4px;
             }
             QWidget:hover {
                 background-color: rgba(255, 255, 255, 0.05);
@@ -933,15 +936,15 @@ class MainWindow(QMainWindow):
         header = QWidget()
         header.setStyleSheet("background: #1a1a1a; border-bottom: 1px solid #3a3a3a;")
         header_layout = QVBoxLayout(header)
-        header_layout.setContentsMargins(20, 20, 20, 20)
+        header_layout.setContentsMargins(16, 12, 16, 10)
         
         title = QLabel("💾 Remotes")
-        title.setFont(QFont("Segoe UI", 16, QFont.Bold))
+        title.setFont(QFont("Segoe UI", 14, QFont.Bold))
         title.setStyleSheet("color: #ffffff; border: none;")
         header_layout.addWidget(title)
         
         subtitle = QLabel("Manage your cloud mounts")
-        subtitle.setFont(QFont("Segoe UI", 10))
+        subtitle.setFont(QFont("Segoe UI", 9))
         subtitle.setStyleSheet("color: #808080; border: none;")
         header_layout.addWidget(subtitle)
         
@@ -956,20 +959,20 @@ class MainWindow(QMainWindow):
                 background: transparent;
                 border: none;
                 outline: none;
-                padding: 8px;
+                padding: 4px;
             }
             QListWidget::item {
                 background: transparent;
                 border: none;
                 padding: 0px;
-                margin: 4px 0px;
+                margin: 1px 0px;
             }
             QListWidget::item:selected {
-                background: rgba(33, 150, 243, 0.2);
-                border-radius: 8px;
+                background: rgba(33, 150, 243, 0.25);
+                border-radius: 4px;
             }
         """)
-        self.list_widget.setSpacing(4)
+        self.list_widget.setSpacing(1)
         sidebar_layout.addWidget(self.list_widget, 1)
         
         # Sidebar Footer
@@ -1085,7 +1088,7 @@ class MainWindow(QMainWindow):
                 item_widget.clicked.connect(self.on_remote_clicked)
                 
                 item = QListWidgetItem(self.list_widget)
-                item.setSizeHint(QSize(250, 45))
+                item.setSizeHint(QSize(250, 28))
                 self.list_widget.addItem(item)
                 self.list_widget.setItemWidget(item, item_widget)
             except Exception as e:
