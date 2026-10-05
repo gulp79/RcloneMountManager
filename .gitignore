@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtualenv
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Antigravity
+.agents/
+implementation_plan.md
+walkthrough.md
+
+# Nuitka
+build/
+dist/
+*.build/
+*.dist/
+*.exe
+nuitka-crash-report.xml
+
+# Nuitka onefile temp
+*.onefile-build/
+
+# Logs
+*.log
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# GitHub Actions artifacts locali
+artifacts/
+
+# Test
+.pytest_cache/
+.coverage
+
+# Packaging
+*.spec
+
+# Backup
+*.bak
+*.old
+*.tmp
+
+# OS
+.DS_Store
