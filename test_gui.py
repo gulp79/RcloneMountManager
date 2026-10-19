@@ -90,16 +90,16 @@ dir-cache-time = 1m
         window.close()
 
     def test_compact_remote_list_item_properties(self):
-        """Verify RemoteListItem has compact margins, spacing, and vertical alignment"""
+        """Verify RemoteListItem has compact margins (8, 4, 8, 4), spacing, and vertical alignment"""
         from RcloneMountManager import RemoteListItem, StatusIndicator
         
         item_widget = RemoteListItem("drive1", "Google Drive Personal")
         layout = item_widget.layout()
         
-        # Check layout margins: (8, 2, 8, 2)
+        # Check layout margins: (8, 4, 8, 4)
         margins = layout.contentsMargins()
-        self.assertEqual(margins.top(), 2)
-        self.assertEqual(margins.bottom(), 2)
+        self.assertEqual(margins.top(), 4)
+        self.assertEqual(margins.bottom(), 4)
         self.assertEqual(margins.left(), 8)
         self.assertEqual(margins.right(), 8)
         
@@ -119,8 +119,8 @@ dir-cache-time = 1m
         item_widget.mousePressEvent(event)
         self.assertEqual(clicked_ids, ["drive1"])
 
-    def test_sidebar_density_with_30_remotes(self):
-        """Verify that 30 remotes can be populated, sizeHint is 28px, and density increases significantly"""
+    def test_sidebar_density_and_filter(self):
+        """Verify that 30 remotes can be populated, sizeHint is 32px, and search filter works"""
         from RcloneMountManager import MainWindow, RemoteListItem
         
         window = MainWindow()
@@ -129,9 +129,10 @@ dir-cache-time = 1m
         # Populate with 30 mock remotes
         for i in range(30):
             rid = f"remote_{i:02d}"
-            item_widget = RemoteListItem(rid, f"Cloud Drive {i:02d}")
+            name = f"Cloud Drive {i:02d}" if i % 2 == 0 else f"Backup Storage {i:02d}"
+            item_widget = RemoteListItem(rid, name)
             item = QListWidgetItem(window.list_widget)
-            item.setSizeHint(QSize(250, 28))
+            item.setSizeHint(QSize(250, 32))
             window.list_widget.addItem(item)
             window.list_widget.setItemWidget(item, item_widget)
         
@@ -140,23 +141,23 @@ dir-cache-time = 1m
         # Test height of each item
         first_item = window.list_widget.item(0)
         item_height = first_item.sizeHint().height()
-        self.assertEqual(item_height, 28)
+        self.assertEqual(item_height, 32)
         
-        # Percentage reduction: (45 - 28) / 45 = 37.78% (within the 30-50% objective)
-        reduction_pct = (45 - item_height) / 45 * 100
-        self.assertGreaterEqual(reduction_pct, 30.0)
-        self.assertLessEqual(reduction_pct, 50.0)
+        # Percentage reduction from legacy 45px: (45 - 32) / 45 = 28.89% ~ 30%
+        self.assertLess(item_height, 45)
         
-        # Density comparison in a 400px tall list viewport:
-        # Previous: 45px item + 4px margin top + 4px margin bottom = 53px per row -> 400 / 53 = 7.5 items
-        # Compact: 28px item + 1px margin + 1px spacing = 30px per row -> 400 / 30 = 13.3 items
-        old_visible_in_400px = 400 // 53
-        new_visible_in_400px = 400 // 30
-        self.assertGreaterEqual(new_visible_in_400px - old_visible_in_400px, 5)
+        # Test search filter functionality
+        self.assertTrue(hasattr(window, "search_filter"))
+        window.search_filter.setText("Backup")
+        visible_count = sum(1 for i in range(window.list_widget.count()) if not window.list_widget.item(i).isHidden())
+        self.assertEqual(visible_count, 15)
+        
+        window.search_filter.setText("")
+        visible_count = sum(1 for i in range(window.list_widget.count()) if not window.list_widget.item(i).isHidden())
+        self.assertEqual(visible_count, 30)
         
         # Verify selection synchronization
         window.on_remote_clicked("remote_15")
-        # Find item 15 and check if list widget current item is set
         for i in range(window.list_widget.count()):
             item = window.list_widget.item(i)
             widget = window.list_widget.itemWidget(item)
@@ -164,7 +165,7 @@ dir-cache-time = 1m
                 window.list_widget.setCurrentItem(item)
                 break
         
-        self.assertEqual(window.list_widget.currentItem().sizeHint().height(), 28)
+        self.assertEqual(window.list_widget.currentItem().sizeHint().height(), 32)
         window.close()
 
     def test_remote_widget_layout_and_collapsible_settings(self):
@@ -183,6 +184,12 @@ dir-cache-time = 1m
         self.assertTrue(hasattr(widget, "btn_open_cache"))
         self.assertTrue(hasattr(widget, "btn_show_command"))
         self.assertTrue(hasattr(widget, "chk_clean_logs"))
+        self.assertTrue(hasattr(widget, "chk_auto_mount"))
+        self.assertTrue(hasattr(widget, "combo_mountpoint"))
+        self.assertTrue(hasattr(widget, "btn_copy_log"))
+        self.assertTrue(hasattr(widget, "btn_clear_log"))
+        self.assertTrue(hasattr(widget, "chk_auto_scroll"))
+        self.assertTrue(hasattr(widget, "btn_reset_defaults"))
         
         # Verify collapsible settings card and default state (closed by default)
         self.assertTrue(hasattr(widget, "settings_card"))

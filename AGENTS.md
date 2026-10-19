@@ -40,7 +40,7 @@ RcloneMountManager/
 | `RemoteController` | Owns a `QProcess` running `rclone mount`, handles start/stop/cleanup |
 | `MainWindow` | Top-level window; builds sidebar + right panel |
 | `RemoteWidget` | Right-hand details panel: status, buttons, collapsible settings, live log |
-| `RemoteListItem` | Custom sidebar row widget (compact, 28 px tall) |
+| `RemoteListItem` | Custom sidebar row widget (compact, 32 px tall) |
 | `StatusIndicator` | Coloured dot label; `size=` param, default 10 px |
 | `ModernButton` | Gradient `QPushButton`; `min_height=` param, default 36 px |
 | `ModernCard` | Dark `QFrame` used as a section container |
@@ -51,7 +51,7 @@ RcloneMountManager/
 
 - **Right panel** (`RemoteWidget`) must stay inside `self.details_scroll` (`QScrollArea`, `widgetResizable=True`, no horizontal scrollbar). Removing it forces a minimum window height that breaks small screens.
 - **Sidebar stretch**: `sidebar_layout` must use stretch `0 / 1 / 0` for header / `list_widget` / footer so the list fills available space and scrolls when there are many remotes.
-- **Sidebar items**: `QListWidgetItem.setSizeHint(QSize(250, 28))`, inner margins `(8, 2, 8, 2)`, spacing `8`, `Qt.AlignVCenter`.
+- **Sidebar items**: `QListWidgetItem.setSizeHint(QSize(250, 32))`, inner margins `(8, 4, 8, 4)`, spacing `8`, `Qt.AlignVCenter`.
 - **Selection sync**: `on_remote_clicked` must call `list_widget.setCurrentItem(item)` after loading the remote in the details panel.
 - **Mount Settings** section (`settings_card`) is collapsible; default state is collapsed (`group_settings.isHidden() == True`). Toggle via `toggle_settings()`.
 - **Scrollbar stylesheet**: always declare `QScrollBar::add-page` and `QScrollBar::sub-page` with `background: none` to prevent rendering artifacts.
