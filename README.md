@@ -304,26 +304,6 @@ For issues related to:
 - **WinFsp**: See https://winfsp.dev/
 - **This application**: Open an issue on GitHub
 
-## 🗺️ Roadmap
-
-### v1.1 (Planned)
-- [ ] System tray integration with quick actions
-- [ ] Dark/Light theme toggle
-- [ ] Custom application icon
-- [ ] Notification system
-
-### v1.2 (Planned)
-- [ ] Remote template wizard
-- [ ] Batch mount/unmount
-- [ ] Configuration import/export
-- [ ] Search and filters
-
-### v2.0 (Future)
-- [ ] Multi-language support
-- [ ] Auto-update functionality
-- [ ] Cloud sync for configs
-- [ ] Advanced scheduling
-
 ---
 
 **Made with ❤️ for the rclone community**
