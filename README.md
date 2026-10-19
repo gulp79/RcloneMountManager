@@ -9,7 +9,7 @@ A modern, dark-themed desktop application for managing rclone mounts with an int
 [![GitHub release](https://img.shields.io/github/v/release/gulp79/RcloneMountManager?include_prereleases)](https://github.com/gulp79/RcloneMountManager/releases/latest)
 ![Total Downloads](https://img.shields.io/github/downloads/gulp79/RcloneMountManager/total)
 
-<img width="1186" height="1025" alt="image" src="https://github.com/user-attachments/assets/d6938e9d-d5ee-4567-bdf2-0b64a6951617" />
+<img width="958" height="515" alt="image" src="https://github.com/user-attachments/assets/7a202b4d-cc9f-47d9-860e-ef8bf79fa62f" />
 
 ## ✨ Features
 
