@@ -363,11 +363,11 @@ class StatusIndicator(QLabel):
         """)
 
 class ModernButton(QPushButton):
-    """Pulsante moderno con hover effects"""
-    def __init__(self, text, color="#2196F3", parent=None):
+    """Modern button with gradient hover effects and customizable height"""
+    def __init__(self, text, color="#2196F3", parent=None, min_height=36):
         super().__init__(text, parent)
         self.base_color = color
-        self.setMinimumHeight(44)
+        self.setMinimumHeight(min_height)
         self.setCursor(Qt.PointingHandCursor)
         self._update_style()
         
@@ -378,10 +378,10 @@ class ModernButton(QPushButton):
                     stop:0 {self.base_color}, stop:1 {self._darken(self.base_color)});
                 color: white;
                 border: none;
-                border-radius: 8px;
-                padding: 12px 24px;
+                border-radius: 6px;
+                padding: 8px 18px;
                 font-weight: bold;
-                font-size: 12px;
+                font-size: 11px;
                 letter-spacing: 0.5px;
             }}
             QPushButton:hover {{
@@ -480,44 +480,127 @@ class RemoteWidget(QWidget):
         self.log_timer.setInterval(1000)
         
         layout = QVBoxLayout(self)
-        layout.setSpacing(15)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
         
-        # --- Header Card ---
+        # --- Header Card with Status and Mount/Unmount Actions ---
         header_card = ModernCard()
         header_layout = QVBoxLayout(header_card)
+        header_layout.setSpacing(10)
         
         self.lbl_name = QLabel("Select a remote")
-        self.lbl_name.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        self.lbl_name.setFont(QFont("Segoe UI", 12, QFont.Bold))
         self.lbl_name.setStyleSheet("color: #ffffff;")
         header_layout.addWidget(self.lbl_name)
         
-        status_layout = QHBoxLayout()
-        self.status_indicator = StatusIndicator()
-        status_layout.addWidget(self.status_indicator)
+        status_action_layout = QHBoxLayout()
+        status_action_layout.setSpacing(10)
+        
+        self.status_indicator = StatusIndicator(size=12)
+        status_action_layout.addWidget(self.status_indicator)
         
         self.lbl_status = QLabel("Status: Not Selected")
         self.lbl_status.setFont(QFont("Segoe UI", 10))
         self.lbl_status.setStyleSheet("color: #b0b0b0;")
-        status_layout.addWidget(self.lbl_status)
-        status_layout.addStretch()
+        status_action_layout.addWidget(self.lbl_status)
         
         self.lbl_timestamp = QLabel()
         self.lbl_timestamp.setFont(QFont("Segoe UI", 9))
         self.lbl_timestamp.setStyleSheet("color: #808080;")
-        status_layout.addWidget(self.lbl_timestamp)
+        status_action_layout.addWidget(self.lbl_timestamp)
         
-        header_layout.addLayout(status_layout)
+        status_action_layout.addStretch()
+        
+        # Action Buttons directly in status card
+        self.btn_mount = ModernButton("🚀 MOUNT", "#4CAF50")
+        self.btn_mount.clicked.connect(self.on_mount)
+        status_action_layout.addWidget(self.btn_mount)
+        
+        self.btn_unmount = ModernButton("⏹️ UNMOUNT", "#F44336")
+        self.btn_unmount.setEnabled(False)
+        self.btn_unmount.clicked.connect(self.on_unmount)
+        status_action_layout.addWidget(self.btn_unmount)
+        
+        header_layout.addLayout(status_action_layout)
         layout.addWidget(header_card)
         
-        # --- Settings Card ---
-        settings_card = ModernCard()
-        settings_layout = QVBoxLayout(settings_card)
+        # --- Utility Buttons & Options (placed before Mount Settings) ---
+        util_layout = QHBoxLayout()
+        util_layout.setSpacing(8)
         
-        settings_title = QLabel("⚙️ Mount Settings")
-        settings_title.setFont(QFont("Segoe UI", 10, QFont.DemiBold))
-        settings_title.setStyleSheet("color: #ffffff; margin-bottom: 8px;")
-        settings_layout.addWidget(settings_title)
+        self.btn_open_mount = QPushButton("📂 Open Mount")
+        self.btn_open_mount.setEnabled(False)
+        self.btn_open_mount.clicked.connect(self.on_open_mount)
+        self._style_util_button(self.btn_open_mount)
+        util_layout.addWidget(self.btn_open_mount)
+        
+        self.btn_open_logs = QPushButton("📄 Open Logs")
+        self.btn_open_logs.clicked.connect(self.on_open_logs)
+        self._style_util_button(self.btn_open_logs)
+        util_layout.addWidget(self.btn_open_logs)
+        
+        self.btn_open_cache = QPushButton("💾 Open Cache")
+        self.btn_open_cache.clicked.connect(self.on_open_cache)
+        self._style_util_button(self.btn_open_cache)
+        util_layout.addWidget(self.btn_open_cache)
+        
+        self.btn_show_command = QPushButton("⌨️ Show Command")
+        self.btn_show_command.clicked.connect(self.on_show_command)
+        self._style_util_button(self.btn_show_command)
+        util_layout.addWidget(self.btn_show_command)
+        
+        util_layout.addStretch()
+        
+        self.chk_clean_logs = QCheckBox("🗑️ Clean logs after unmount")
+        self.chk_clean_logs.setChecked(True)
+        self.chk_clean_logs.setStyleSheet("""
+            QCheckBox {
+                color: #e0e0e0;
+                font-size: 12px;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border-radius: 4px;
+                border: 2px solid #4a4a4a;
+                background-color: #1e1e1e;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #2196F3;
+                border-color: #2196F3;
+            }
+        """)
+        util_layout.addWidget(self.chk_clean_logs)
+        
+        layout.addLayout(util_layout)
+        
+        # --- Collapsible Settings Card ---
+        self.settings_card = ModernCard()
+        settings_layout = QVBoxLayout(self.settings_card)
+        settings_layout.setContentsMargins(16, 10, 16, 10)
+        settings_layout.setSpacing(6)
+        
+        self.settings_expanded = False
+        
+        self.btn_toggle_settings = QPushButton("⚙️ Mount Settings  ▸")
+        self.btn_toggle_settings.setCursor(Qt.PointingHandCursor)
+        self.btn_toggle_settings.setFont(QFont("Segoe UI", 10, QFont.DemiBold))
+        self.btn_toggle_settings.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: none;
+                color: #ffffff;
+                text-align: left;
+                padding: 4px 0px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                color: #2196F3;
+            }
+        """)
+        self.btn_toggle_settings.clicked.connect(self.toggle_settings)
+        settings_layout.addWidget(self.btn_toggle_settings)
         
         self.group_settings = QGroupBox()
         self.group_settings.setStyleSheet("""
@@ -527,8 +610,8 @@ class RemoteWidget(QWidget):
             }
         """)
         form_layout = QFormLayout(self.group_settings)
-        form_layout.setSpacing(15)
-        form_layout.setContentsMargins(0, 0, 0, 0)
+        form_layout.setSpacing(12)
+        form_layout.setContentsMargins(0, 8, 0, 4)
         
         # VFS Cache Mode
         cache_label = QLabel("VFS Cache Mode:")
@@ -577,72 +660,10 @@ class RemoteWidget(QWidget):
         form_layout.addRow(dir_label, self.edit_dir_cache)
         
         settings_layout.addWidget(self.group_settings)
-        layout.addWidget(settings_card)
         
-        # --- Action Buttons ---
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(12)
-        
-        self.btn_mount = ModernButton("🚀 MOUNT", "#4CAF50")
-        self.btn_mount.clicked.connect(self.on_mount)
-        btn_layout.addWidget(self.btn_mount)
-        
-        self.btn_unmount = ModernButton("⏹️ UNMOUNT", "#F44336")
-        self.btn_unmount.setEnabled(False)
-        self.btn_unmount.clicked.connect(self.on_unmount)
-        btn_layout.addWidget(self.btn_unmount)
-        
-        layout.addLayout(btn_layout)
-        
-        # --- Utility Buttons ---
-        util_layout = QHBoxLayout()
-        util_layout.setSpacing(8)
-        
-        self.btn_open_mount = QPushButton("📂 Open Mount")
-        self.btn_open_mount.setEnabled(False)
-        self.btn_open_mount.clicked.connect(self.on_open_mount)
-        self._style_util_button(self.btn_open_mount)
-        util_layout.addWidget(self.btn_open_mount)
-        
-        self.btn_open_logs = QPushButton("📄 Open Logs")
-        self.btn_open_logs.clicked.connect(self.on_open_logs)
-        self._style_util_button(self.btn_open_logs)
-        util_layout.addWidget(self.btn_open_logs)
-        
-        self.btn_open_cache = QPushButton("💾 Open Cache")
-        self.btn_open_cache.clicked.connect(self.on_open_cache)
-        self._style_util_button(self.btn_open_cache)
-        util_layout.addWidget(self.btn_open_cache)
-        
-        self.btn_show_command = QPushButton("⌨️ Show Command")
-        self.btn_show_command.clicked.connect(self.on_show_command)
-        self._style_util_button(self.btn_show_command)
-        util_layout.addWidget(self.btn_show_command)
-        
-        layout.addLayout(util_layout)
-        
-        # --- Options ---
-        self.chk_clean_logs = QCheckBox("🗑️ Clean logs after unmount")
-        self.chk_clean_logs.setChecked(True)
-        self.chk_clean_logs.setStyleSheet("""
-            QCheckBox {
-                color: #e0e0e0;
-                font-size: 12px;
-                spacing: 8px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-                border-radius: 4px;
-                border: 2px solid #4a4a4a;
-                background-color: #1e1e1e;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #2196F3;
-                border-color: #2196F3;
-            }
-        """)
-        layout.addWidget(self.chk_clean_logs)
+        # Start collapsed by default as requested
+        self.group_settings.setVisible(False)
+        layout.addWidget(self.settings_card)
         
         # --- Log Viewer Card ---
         log_card = ModernCard()
@@ -671,6 +692,13 @@ class RemoteWidget(QWidget):
         
         layout.addWidget(log_card)
         layout.addStretch()
+        
+    def toggle_settings(self):
+        """Toggle visibility of mount settings section"""
+        self.settings_expanded = not self.settings_expanded
+        self.group_settings.setVisible(self.settings_expanded)
+        arrow = "▾" if self.settings_expanded else "▸"
+        self.btn_toggle_settings.setText(f"⚙️ Mount Settings  {arrow}")
         
     def _style_line_edit(self, edit):
         edit.setStyleSheet("""

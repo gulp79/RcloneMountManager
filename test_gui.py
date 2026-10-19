@@ -167,5 +167,43 @@ dir-cache-time = 1m
         self.assertEqual(window.list_widget.currentItem().sizeHint().height(), 28)
         window.close()
 
+    def test_remote_widget_layout_and_collapsible_settings(self):
+        """Verify MOUNT/UNMOUNT location, utility buttons, and collapsible settings behavior"""
+        from RcloneMountManager import RemoteWidget, ModernButton
+        
+        widget = RemoteWidget()
+        
+        # Verify action buttons exist and are ModernButton instances
+        self.assertIsInstance(widget.btn_mount, ModernButton)
+        self.assertIsInstance(widget.btn_unmount, ModernButton)
+        
+        # Verify utility buttons exist
+        self.assertTrue(hasattr(widget, "btn_open_mount"))
+        self.assertTrue(hasattr(widget, "btn_open_logs"))
+        self.assertTrue(hasattr(widget, "btn_open_cache"))
+        self.assertTrue(hasattr(widget, "btn_show_command"))
+        self.assertTrue(hasattr(widget, "chk_clean_logs"))
+        
+        # Verify collapsible settings card and default state (closed by default)
+        self.assertTrue(hasattr(widget, "settings_card"))
+        self.assertTrue(hasattr(widget, "btn_toggle_settings"))
+        self.assertTrue(hasattr(widget, "group_settings"))
+        self.assertFalse(widget.settings_expanded)
+        self.assertTrue(widget.group_settings.isHidden())
+        self.assertIn("▸", widget.btn_toggle_settings.text())
+        
+        # Toggle settings to expand
+        widget.toggle_settings()
+        self.assertTrue(widget.settings_expanded)
+        self.assertFalse(widget.group_settings.isHidden())
+        self.assertIn("▾", widget.btn_toggle_settings.text())
+        
+        # Toggle settings to collapse again
+        widget.toggle_settings()
+        self.assertFalse(widget.settings_expanded)
+        self.assertTrue(widget.group_settings.isHidden())
+        self.assertIn("▸", widget.btn_toggle_settings.text())
+
 if __name__ == "__main__":
     unittest.main()
+

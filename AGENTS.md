@@ -1,151 +1,139 @@
-# AI Agents Development & Maintenance Guide
+# AGENTS.md — Rclone Mount Manager
 
-This document defines guidelines, architectural patterns, coding standards, and operational workflows for AI agents working on, maintaining, and updating the **Rclone Mount Manager** application.
-
----
-
-## 🌐 Language Requirement (Strict Rule)
-
-> [!IMPORTANT]
-> **ALL code comments, docstrings, variable/function names, UI strings, log messages, commit messages, and documentation updates MUST BE IN ENGLISH.**
-> Existing legacy comments or docstrings in other languages should be converted to English when touching the relevant code sections.
+> Everything an AI agent needs to work effectively on this project.
 
 ---
 
-## 🤖 AI Development Team Roles
+## Language
 
-### 1. Manager (Architect & PM)
-- **Role**: Requirements analysis, task breakdown, and technical planning.
-- **Workflow**:
-  - Review user requirements and inspect the codebase.
-  - Break tasks down into clear, atomic milestones.
-  - Define architectural decisions, UI layout changes, and technical risks.
-  - Ensure compatibility with both Windows and Linux, as well as PyInstaller / Nuitka packaging.
-  - Validate the Tester's results before marking a milestone complete.
-
-### 2. Developer (Python Engineer)
-- **Role**: Code implementation, refactoring, and bug fixes.
-- **Workflow**:
-  - Implement changes adhering strictly to the plan formulated by the Manager.
-  - Keep code modular, clean, and adhering to PEP 8 standards.
-  - Maintain docstrings and inline comments in **English**.
-  - Respect existing architectural abstractions (`RemoteController`, `MainWindow`, `RemoteWidget`, etc.).
-
-### 3. Tester (QA Engineer)
-- **Role**: Code quality assurance, static verification, and automated testing.
-- **Workflow**:
-  - Review modified code for syntax errors, regressions, and layout stability.
-  - Run static syntax verification (`python -m py_compile RcloneMountManager.py`).
-  - Maintain and execute the unit test suite (`python -m unittest -v test_gui.py`).
-  - Always run GUI tests using Qt offscreen mode (`QApplication(["-platform", "offscreen"])`) so tests can run in headless CI/CD and sandbox environments.
+All code, comments, docstrings, log messages, UI strings, and commit messages **must be in English**. Convert any legacy non-English text when editing nearby code.
 
 ---
 
-## 📁 Project Architecture & File Structure
+## Codebase at a Glance
 
-```text
+```
 RcloneMountManager/
-├── RcloneMountManager.py     # Main application file (GUI, controllers, process lifecycle)
-├── test_gui.py               # Automated unit test suite (headless offscreen tests)
-├── requirements.txt          # Python runtime dependencies (PySide6>=6.5.0)
-├── RcloneMountManager.spec   # PyInstaller build specification
-├── icon.ico                  # Application icon (Windows ICO format)
-├── remotes/                  # Remote configuration storage
-│   ├── _sample.properties    # Sample configuration template
-│   ├── <name>.properties     # Individual remote settings
-│   └── <name>.override.json  # Runtime UI parameter overrides
-├── cache/                    # Local VFS cache per remote (<remote_id>/)
-└── logs/                     # Log files
-    ├── app.log               # Main application log (UTF-8, rotated 2MB x 6 backups)
-    └── <remote_id>/          # Per-remote rclone logs
-        └── rclone.log
+├── RcloneMountManager.py   # Single-file app: all GUI + controller logic
+├── test_gui.py             # Headless unit tests (PySide6 offscreen)
+├── requirements.txt        # PySide6>=6.5.0
+├── RcloneMountManager.spec # PyInstaller build spec
+├── icon.ico
+├── remotes/
+│   ├── _sample.properties  # Ignored by loader (leading underscore)
+│   ├── <id>.properties     # Per-remote config (configparser format)
+│   └── <id>.override.json  # Runtime UI overrides saved on mount
+├── cache/<id>/             # VFS cache per remote
+└── logs/
+    ├── app.log             # Rotating, UTF-8, 2 MB × 6
+    └── <id>/rclone.log
 ```
 
----
-
-## 🧩 Core Architectural Components
-
-### 1. Process & Controller Logic (`RemoteController`)
-- **Process Management**:
-  - Uses `QProcess` to run `rclone mount`.
-  - Termination sequence:
-    - **Windows**: Calls `self.process.terminate()`. If not finished within 3000 ms, falls back to `taskkill /F /T /PID <pid>`.
-    - **Linux**: Calls `fusermount -u <mountpoint>` first, followed by `self.process.terminate()`.
-- **Safety Checks**:
-  - Directory cleanup (`_cleanup`) MUST ALWAYS verify path containment using `is_relative_to(BASE_DIR)` to prevent deleting arbitrary system files.
-- **Configuration & Overrides**:
-  - Remote properties are stored in `.properties` files (`configparser`).
-  - Dynamic UI adjustments (cache mode, cache age, dir cache time) are persisted in `<remote_id>.override.json`.
-
-### 2. User Interface (`MainWindow`, `RemoteListItem`, `RemoteWidget`)
-- **Split Layout (`MainWindow`)**:
-  - **Left Sidebar** (`QFrame`, fixed width 280px):
-    - `header`: Title & subtitle (compact padding: `16px 12px 16px 10px`). Layout stretch factor `0`.
-    - `list_widget` (`QListWidget`): Shows all remotes. Layout stretch factor `1`.
-    - `footer`: Contains the "Refresh" button. Layout stretch factor `0`.
-  - **Right Details Panel (`details_scroll`)**:
-    - **Crucial Layout Rule**: The right panel (`RemoteWidget`) MUST remain enclosed inside `self.details_scroll = QScrollArea()`. This prevents the details panel from enforcing a large minimum window height that would break non-maximized windows or small screens.
-- **Compact Sidebar Item Density (`RemoteListItem`)**:
-  - Item height is set via `QListWidgetItem.setSizeHint(QSize(250, 28))`.
-  - Layout margins: `contentsMargins(8, 2, 8, 2)` (minimal 2px vertical padding).
-  - Internal spacing: `setSpacing(8)`.
-  - Explicit vertical centering: `layout.setAlignment(Qt.AlignVCenter)`.
-  - Status indicator: `StatusIndicator(size=10)` (10x10 px).
-  - Emoji icon: 10pt font.
-  - Name label: 9pt font, Medium weight.
-  - Border radius for hover and selection: 4px.
-  - **Selection Synchronization**: When a `RemoteListItem` is clicked, `on_remote_clicked` must update `list_widget.setCurrentItem(item)` to keep visual selection synchronized.
-
-### 3. Styling & Theming (`apply_modern_dark_theme`)
-- Qt `Fusion` style with dark palette.
-- **Scrollbar Styling**:
-  - Custom scrollbars defined in `app.setStyleSheet`.
-  - Always keep `QScrollBar::add-page` and `QScrollBar::sub-page` set to `background: none;` to avoid rendering artifacts or invisible scrollbars across different platforms.
-
-### 4. Portable Path Resolution & Bundling
-- `get_base_dir()` automatically handles:
-  - Development mode (`Path(__file__).resolve().parent`).
-  - PyInstaller / Nuitka compiled mode (`sys.executable` parent or `_MEIPASS`).
-- `get_icon_path()` checks both `sys._MEIPASS` and `BASE_DIR`.
-- All file logging (`RotatingFileHandler`) must explicitly use `encoding='utf-8'` to prevent `UnicodeEncodeError` with emojis on Windows.
+**One file.** All changes go in `RcloneMountManager.py`. The test file is `test_gui.py`.
 
 ---
 
-## 🛠️ Testing & Verification Guidelines
+## Key Classes
 
-When making any changes to the codebase, follow these verification steps:
-
-1. **Syntax Check**:
-   ```bash
-   python -m py_compile RcloneMountManager.py
-   ```
-
-2. **Automated Unit Tests**:
-   ```bash
-   python -m unittest -v test_gui.py
-   ```
-   - When writing new tests, keep them self-contained using Python's standard library `unittest` and `PySide6`.
-   - Never rely on an active desktop display in tests; always pass `["-platform", "offscreen"]` to `QApplication`.
-
-3. **Responsive GUI Verification**:
-   - Verify the window resizes cleanly below 600px height without clipping controls.
-   - Verify sidebar scrolling remains smooth when 20+ remotes are configured.
-   - Ensure the selection highlight follows the clicked remote item.
+| Class | Purpose |
+|---|---|
+| `RemoteController` | Owns a `QProcess` running `rclone mount`, handles start/stop/cleanup |
+| `MainWindow` | Top-level window; builds sidebar + right panel |
+| `RemoteWidget` | Right-hand details panel: status, buttons, collapsible settings, live log |
+| `RemoteListItem` | Custom sidebar row widget (compact, 28 px tall) |
+| `StatusIndicator` | Coloured dot label; `size=` param, default 10 px |
+| `ModernButton` | Gradient `QPushButton`; `min_height=` param, default 36 px |
+| `ModernCard` | Dark `QFrame` used as a section container |
 
 ---
 
-## 📦 Building Executables
+## Layout Rules (do not break these)
 
-### PyInstaller
+- **Right panel** (`RemoteWidget`) must stay inside `self.details_scroll` (`QScrollArea`, `widgetResizable=True`, no horizontal scrollbar). Removing it forces a minimum window height that breaks small screens.
+- **Sidebar stretch**: `sidebar_layout` must use stretch `0 / 1 / 0` for header / `list_widget` / footer so the list fills available space and scrolls when there are many remotes.
+- **Sidebar items**: `QListWidgetItem.setSizeHint(QSize(250, 28))`, inner margins `(8, 2, 8, 2)`, spacing `8`, `Qt.AlignVCenter`.
+- **Selection sync**: `on_remote_clicked` must call `list_widget.setCurrentItem(item)` after loading the remote in the details panel.
+- **Mount Settings** section (`settings_card`) is collapsible; default state is collapsed (`group_settings.isHidden() == True`). Toggle via `toggle_settings()`.
+- **Scrollbar stylesheet**: always declare `QScrollBar::add-page` and `QScrollBar::sub-page` with `background: none` to prevent rendering artifacts.
+
+---
+
+## RemoteController Behaviour
+
+```
+start_mount()  →  builds rclone command, starts QProcess, sets is_running = True
+stop_mount()   →  Windows: terminate() + taskkill fallback after 3 s
+                  Linux:   fusermount -u <mountpoint>, then terminate()
+_cleanup()     →  deletes cache/logs only if path.is_relative_to(BASE_DIR)  ← safety check, never remove
+```
+
+Config resolution order for `--config`: `config_path` in `.properties` → `BASE_DIR/rclone.conf` → rclone default.
+
+Mountpoint `auto` on Windows → passes `*` as the mountpoint argument (auto-assign drive letter).
+
+---
+
+## Logging
+
+```python
+RotatingFileHandler(APP_LOG, maxBytes=2*1024*1024, backupCount=6, encoding='utf-8')
+```
+
+`encoding='utf-8'` is mandatory on Windows to avoid `UnicodeEncodeError` with emoji characters in log strings.
+
+---
+
+## Portable Path Resolution
+
+```python
+get_base_dir()   # dev → Path(__file__).parent  |  exe → Path(sys.executable).parent
+get_icon_path()  # checks sys._MEIPASS first (PyInstaller), then BASE_DIR
+```
+
+Always use `BASE_DIR` for relative path resolution, never `os.getcwd()`.
+
+---
+
+## Verification (run after every change)
+
 ```bash
+# 1. Syntax
+python -m py_compile RcloneMountManager.py
+
+# 2. Tests (headless, no display required)
+python -m unittest -v test_gui.py
+```
+
+Tests use `QApplication(["-platform", "offscreen"])`. Never depend on an active display. All tests live in a single `TestRcloneMountManager(unittest.TestCase)` class.
+
+When adding a new test:
+- Import only what you need inside the test method to keep setup fast.
+- Prefer asserting structural properties (widget hierarchy, margins, flags) over pixel-level layout.
+- Clean up any temp files in `tearDown` or `finally` blocks.
+
+---
+
+## Building
+
+```bash
+# PyInstaller (preferred, uses existing spec)
 pyinstaller RcloneMountManager.spec
-```
-Or with CLI flags:
-```bash
-pyinstaller --onefile --windowed --name "RcloneMountManager" --icon=icon.ico RcloneMountManager.py
+
+# Nuitka
+python -m nuitka --standalone --onefile --windows-disable-console \
+    --windows-icon-from-ico=icon.ico \
+    --output-dir=build --output-filename=RcloneMountManager.exe \
+    RcloneMountManager.py
 ```
 
-### Nuitka
-```bash
-python -m nuitka --standalone --onefile --windows-disable-console --windows-icon-from-ico=icon.ico --output-dir=build --output-filename=RcloneMountManager.exe RcloneMountManager.py
-```
+The `.spec` file already bundles `icon.ico` via `datas=[('icon.ico', '.')]`.
+
+---
+
+## Coding Conventions
+
+- PEP 8. No type-ignore hacks without a comment explaining why.
+- Docstrings on every class and non-trivial method.
+- Use `logger.info/warning/error` — never bare `print()` in production code paths.
+- Keep all Qt stylesheet strings as raw inline strings inside the relevant `__init__`. Do not move them to a separate theme file unless the user requests it.
+- Do not introduce new dependencies without updating `requirements.txt`.
