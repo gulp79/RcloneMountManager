@@ -116,14 +116,8 @@ When adding a new test:
 ## Building
 
 ```bash
-# PyInstaller (preferred, uses existing spec)
+# PyInstaller (uses existing spec)
 pyinstaller RcloneMountManager.spec
-
-# Nuitka
-python -m nuitka --standalone --onefile --windows-disable-console \
-    --windows-icon-from-ico=icon.ico \
-    --output-dir=build --output-filename=RcloneMountManager.exe \
-    RcloneMountManager.py
 ```
 
 The `.spec` file already bundles `icon.ico` via `datas=[('icon.ico', '.')]`.
