@@ -19,14 +19,14 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                                QPlainTextEdit, QSplitter, QMessageBox, QCheckBox, 
                                QFormLayout, QFrame, QStyleFactory, QScrollArea,
                                QFileDialog, QSystemTrayIcon, QMenu, QStatusBar)
-from PySide6.QtCore import Qt, QProcess, QTimer, Slot, Signal, QSize, QPropertyAnimation, QEasingCurve, QPoint
+from PySide6.QtCore import Qt, QProcess, QTimer, Slot, Signal, QSize, QPropertyAnimation, QEasingCurve, QPoint, QEvent
 from PySide6.QtGui import (QIcon, QAction, QColor, QPalette, QFont, QPixmap, QPainter, 
                            QLinearGradient, QKeySequence, QShortcut, QSyntaxHighlighter, 
                            QTextCharFormat)
 
 # --- GLOBAL CONFIGURATION ---
 APP_NAME = "Rclone Mount Manager"
-VERSION = "1.1.0"
+VERSION = "1.0.5"
 
 def get_base_dir() -> Path:
     """
@@ -553,6 +553,7 @@ class RemoteListItem(QWidget):
     
     def __init__(self, remote_id: str, name: str, parent=None):
         super().__init__(parent)
+        self.setObjectName("RemoteListItem")
         self.remote_id = remote_id
         self.name = name
         self.is_selected = False
@@ -609,21 +610,24 @@ class RemoteListItem(QWidget):
             """)
         self.update_style()
 
+    def set_status(self, status: str):
+        self.status_indicator.update_status(status)
+
     def update_style(self):
         if self.is_selected:
             self.setStyleSheet("""
-                QWidget {
-                    background: #1e293b;
+                #RemoteListItem {
+                    background-color: #1e293b;
                     border-radius: 6px;
                 }
             """)
         else:
             self.setStyleSheet("""
-                QWidget {
-                    background: transparent;
+                #RemoteListItem {
+                    background-color: transparent;
                     border-radius: 6px;
                 }
-                QWidget:hover {
+                #RemoteListItem:hover {
                     background-color: #171f2d;
                 }
             """)
@@ -637,12 +641,20 @@ class RemoteListItem(QWidget):
         
     def mousePressEvent(self, event):
         self.clicked.emit(self.remote_id)
+        # Transfer keyboard focus to the parent QListWidget for arrow key navigation
+        parent = self.parentWidget()
+        while parent:
+            if isinstance(parent, QListWidget):
+                parent.setFocus()
+                break
+            parent = parent.parentWidget()
         super().mousePressEvent(event)
 
 # --- RIGHT DETAILS PANEL ---
 
 class RemoteWidget(QWidget):
     """Right-hand remote details panel: Overview, Actions, Collapsible Settings, and Terminal Stream"""
+    status_changed = Signal()
     
     def __init__(self):
         super().__init__()
@@ -687,7 +699,7 @@ class RemoteWidget(QWidget):
         info_layout = QVBoxLayout()
         info_layout.setSpacing(4)
         
-        # Row 1: Title and Badges
+        # Row 1: Title and Remote Name Tag
         title_row = QHBoxLayout()
         title_row.setSpacing(8)
         self.lbl_name = QLabel("Select a remote")
@@ -705,17 +717,6 @@ class RemoteWidget(QWidget):
             padding: 2px 6px;
         """)
         title_row.addWidget(self.lbl_remote_tag)
-        
-        self.lbl_provider_tag = QLabel("Cloud Storage")
-        self.lbl_provider_tag.setFont(QFont("Segoe UI", 8, QFont.Bold))
-        self.lbl_provider_tag.setStyleSheet("""
-            color: #38bdf8;
-            background-color: rgba(56, 189, 248, 0.12);
-            border: 1px solid rgba(56, 189, 248, 0.3);
-            border-radius: 4px;
-            padding: 2px 6px;
-        """)
-        title_row.addWidget(self.lbl_provider_tag)
         title_row.addStretch()
         info_layout.addLayout(title_row)
         
@@ -1278,9 +1279,8 @@ class RemoteWidget(QWidget):
         self.lbl_name.setText(name)
         self.lbl_remote_tag.setText(remote)
         
-        icon_str, tag_str, provider_title = get_provider_info(controller.config_id, name)
+        icon_str, tag_str, _ = get_provider_info(controller.config_id, name)
         self.lbl_avatar_icon.setText(icon_str)
-        self.lbl_provider_tag.setText(provider_title)
         
         # Load parameters
         params = controller.runtime_params
@@ -1372,8 +1372,11 @@ class RemoteWidget(QWidget):
             if self.current_controller.process:
                 self.current_controller.process.finished.connect(self.on_process_finished)
             self.refresh_state()
+            self.status_changed.emit()
             logger.info(f"Mount initiated for {self.current_controller.config_id}")
         except Exception as e:
+            self.refresh_state()
+            self.status_changed.emit()
             logger.error(f"Mount error: {e}")
             QMessageBox.critical(self, "❌ Mount Error", str(e))
 
@@ -1382,9 +1385,11 @@ class RemoteWidget(QWidget):
             return
         self.current_controller.stop_mount(clean_logs=self.chk_clean_logs.isChecked())
         self.refresh_state()
+        self.status_changed.emit()
 
     def on_process_finished(self):
         self.refresh_state()
+        self.status_changed.emit()
         self.log_viewer.appendPlainText("\n--- [SYSTEM] PROCESS TERMINATED ---\n")
         logger.info(f"Process finished for {self.current_controller.config_id}")
 
@@ -1638,6 +1643,7 @@ class MainWindow(QMainWindow):
         self.search_filter = QLineEdit()
         self.search_filter.setPlaceholderText("Filter remotes (Ctrl+F)...")
         self.search_filter.textChanged.connect(self.filter_remotes)
+        self.search_filter.installEventFilter(self)
         self.search_filter.setStyleSheet("""
             QLineEdit {
                 background-color: #121620;
@@ -1681,8 +1687,10 @@ class MainWindow(QMainWindow):
         
         # Remote List Widget
         self.list_widget = QListWidget()
+        self.list_widget.setFocusPolicy(Qt.StrongFocus)
         self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.list_widget.currentItemChanged.connect(self.on_current_item_changed)
         self.list_widget.setStyleSheet("""
             QListWidget {
                 background-color: transparent;
@@ -1765,6 +1773,7 @@ class MainWindow(QMainWindow):
         
         self.details_panel = RemoteWidget()
         self.details_panel.setStyleSheet("QWidget { background-color: #0c0e14; }")
+        self.details_panel.status_changed.connect(self.on_remote_status_changed)
         self.details_scroll.setWidget(self.details_panel)
         main_layout.addWidget(self.details_scroll, 1)
         
@@ -1895,6 +1904,7 @@ class MainWindow(QMainWindow):
                 logger.error(f"Error loading remote {f}: {e}")
         
         self.update_status_counts()
+        self.update_remote_list_statuses()
         
         # Select first remote if available and nothing is selected
         if self.controllers and not self.details_panel.current_controller:
@@ -1911,8 +1921,49 @@ class MainWindow(QMainWindow):
         self.badge_inactive.setText(f"{inactive} Inactive")
         self.lbl_active_processes.setText(f"Active Processes: {active}")
 
+    def on_remote_status_changed(self):
+        """Handle status change notification from RemoteWidget"""
+        self.update_status_counts()
+        self.update_remote_list_statuses()
+
+    def update_remote_list_statuses(self):
+        """Synchronize status dot indicators for all remotes in the sidebar list"""
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            widget = self.list_widget.itemWidget(item)
+            if isinstance(widget, RemoteListItem):
+                ctl = self.controllers.get(widget.remote_id)
+                if ctl and ctl.is_running:
+                    widget.set_status("running")
+                else:
+                    widget.set_status("stopped")
+
+    def on_current_item_changed(self, current: QListWidgetItem, previous: QListWidgetItem):
+        """Handle keyboard arrow navigation (Up/Down) on QListWidget"""
+        if not current:
+            return
+        widget = self.list_widget.itemWidget(current)
+        if isinstance(widget, RemoteListItem):
+            self.on_remote_clicked(widget.remote_id)
+
+    def eventFilter(self, watched, event):
+        """Enable pressing Down/Enter in the search box to jump directly to list items"""
+        if watched == self.search_filter and event.type() == QEvent.KeyPress:
+            if event.key() in (Qt.Key_Down, Qt.Key_Enter, Qt.Key_Return):
+                self.list_widget.setFocus()
+                if self.list_widget.count() > 0:
+                    current = self.list_widget.currentItem()
+                    if not current or current.isHidden():
+                        for i in range(self.list_widget.count()):
+                            item = self.list_widget.item(i)
+                            if not item.isHidden():
+                                self.list_widget.setCurrentItem(item)
+                                break
+                return True
+        return super().eventFilter(watched, event)
+
     def on_remote_clicked(self, remote_id: str):
-        """Handle remote selection and synchronize active badges"""
+        """Handle remote selection, load details, and synchronize selection highlight"""
         if remote_id in self.controllers:
             ctl = self.controllers[remote_id]
             self.details_panel.load_remote(ctl)
@@ -1925,8 +1976,12 @@ class MainWindow(QMainWindow):
                 if isinstance(widget, RemoteListItem):
                     is_current = (widget.remote_id == remote_id)
                     widget.setSelectedState(is_current)
-                    if is_current:
+                    if is_current and self.list_widget.currentItem() != item:
+                        self.list_widget.blockSignals(True)
                         self.list_widget.setCurrentItem(item)
+                        self.list_widget.blockSignals(False)
+            
+            self.list_widget.setFocus()
 
     def on_add_remote(self):
         """Open remotes directory in file manager or prompt template creation"""
@@ -1949,6 +2004,7 @@ class MainWindow(QMainWindow):
                 logger.info(f"Auto-mounting remote on launch: {r_id}")
                 ctl.start_mount(ctl.runtime_params)
         self.update_status_counts()
+        self.update_remote_list_statuses()
         self.details_panel.refresh_state()
 
     def check_processes(self):
@@ -1959,6 +2015,7 @@ class MainWindow(QMainWindow):
                     ctl.is_running = False
                     
         self.update_status_counts()
+        self.update_remote_list_statuses()
         if self.details_panel.current_controller:
             self.details_panel.refresh_state()
 

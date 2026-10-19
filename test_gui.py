@@ -211,6 +211,87 @@ dir-cache-time = 1m
         self.assertTrue(widget.group_settings.isHidden())
         self.assertIn("▸", widget.btn_toggle_settings.text())
 
+    def test_header_no_cloud_provider_pill(self):
+        """Verify the cloud provider tag (e.g. 'Google Drive API') is removed from RemoteWidget header"""
+        from RcloneMountManager import RemoteWidget
+        
+        widget = RemoteWidget()
+        self.assertFalse(hasattr(widget, "lbl_provider_tag"))
+
+    def test_sidebar_keyboard_arrow_navigation_and_status_sync(self):
+        """Verify keyboard navigation (Up/Down) selects remotes and status indicator syncs green when running"""
+        from RcloneMountManager import MainWindow, RemoteListItem, RemoteController
+        
+        window = MainWindow()
+        window.list_widget.clear()
+        window.controllers.clear()
+        
+        # Create temp controller properties
+        p1 = Path("test_r1.properties")
+        p2 = Path("test_r2.properties")
+        p1.write_text("[General]\nname=Cloud One\nremote_name=r1:\nmountpoint=X:\n", encoding="utf-8")
+        p2.write_text("[General]\nname=Cloud Two\nremote_name=r2:\nmountpoint=Y:\n", encoding="utf-8")
+        
+        try:
+            ctl1 = RemoteController(p1)
+            ctl2 = RemoteController(p2)
+            window.controllers["test_r1"] = ctl1
+            window.controllers["test_r2"] = ctl2
+            
+            # Add item 1
+            w1 = RemoteListItem("test_r1", "Cloud One")
+            item1 = QListWidgetItem(window.list_widget)
+            item1.setSizeHint(QSize(250, 32))
+            window.list_widget.addItem(item1)
+            window.list_widget.setItemWidget(item1, w1)
+            
+            # Add item 2
+            w2 = RemoteListItem("test_r2", "Cloud Two")
+            item2 = QListWidgetItem(window.list_widget)
+            item2.setSizeHint(QSize(250, 32))
+            window.list_widget.addItem(item2)
+            window.list_widget.setItemWidget(item2, w2)
+            
+            # Initial selection on item 1
+            window.list_widget.setCurrentItem(item1)
+            self.assertEqual(window.details_panel.lbl_name.text(), "Cloud One")
+            
+            # Simulate keyboard arrow Down navigation: select item 2
+            window.list_widget.setCurrentItem(item2)
+            self.assertEqual(window.details_panel.lbl_name.text(), "Cloud Two")
+            self.assertTrue(w2.is_selected)
+            self.assertFalse(w1.is_selected)
+            
+            # Simulate keyboard arrow Up navigation: select item 1
+            window.list_widget.setCurrentItem(item1)
+            self.assertEqual(window.details_panel.lbl_name.text(), "Cloud One")
+            self.assertTrue(w1.is_selected)
+            self.assertFalse(w2.is_selected)
+            
+            # Test status indicator synchronization: stopped initially
+            window.update_remote_list_statuses()
+            self.assertEqual(w1.status_indicator.status, "stopped")
+            self.assertEqual(w2.status_indicator.status, "stopped")
+            
+            # Simulate remote 1 is mounted/running
+            ctl1.is_running = True
+            window.update_remote_list_statuses()
+            self.assertEqual(w1.status_indicator.status, "running")
+            self.assertEqual(w2.status_indicator.status, "stopped")
+            
+            # Simulate remote 1 unmounted
+            ctl1.is_running = False
+            window.update_remote_list_statuses()
+            self.assertEqual(w1.status_indicator.status, "stopped")
+            self.assertEqual(w2.status_indicator.status, "stopped")
+            
+        finally:
+            window.close()
+            if p1.exists():
+                p1.unlink()
+            if p2.exists():
+                p2.unlink()
+
 if __name__ == "__main__":
     unittest.main()
 
