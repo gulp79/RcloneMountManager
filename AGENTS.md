@@ -19,9 +19,8 @@ RcloneMountManager/
 ├── requirements.txt        # PySide6>=6.5.0
 ├── RcloneMountManager.spec # PyInstaller build spec
 ├── icon.ico
+├── rclone.conf             # (Optional) Portable rclone config
 ├── remotes/
-│   ├── _sample.properties  # Ignored by loader (leading underscore)
-│   ├── <id>.properties     # Per-remote config (configparser format)
 │   └── <id>.override.json  # Runtime UI overrides saved on mount
 ├── cache/<id>/             # VFS cache per remote
 └── logs/
@@ -58,7 +57,7 @@ RcloneMountManager/
 
 ---
 
-## RemoteController Behaviour
+## Remote Discovery & Controller Behaviour
 
 ```
 start_mount()  →  builds rclone command, starts QProcess, sets is_running = True
@@ -67,9 +66,12 @@ stop_mount()   →  Windows: terminate() + taskkill fallback after 3 s
 _cleanup()     →  deletes cache/logs only if path.is_relative_to(BASE_DIR)  ← safety check, never remove
 ```
 
-Config resolution order for `--config`: `config_path` in `.properties` → `BASE_DIR/rclone.conf` → rclone default.
-
-Mountpoint `auto` on Windows → passes `*` as the mountpoint argument (auto-assign drive letter).
+- **Remote discovery**: `refresh_remotes()` discovers remotes directly from `rclone.conf` sections. Legacy `.properties` files are deprecated and ignored.
+- **Config resolution order for `--config`**: `BASE_DIR/rclone.conf` (portable) → `$RCLONE_CONFIG` → OS default path (`%APPDATA%/rclone/rclone.conf` or `~/.config/rclone/rclone.conf`).
+- **Overrides**: Mount options use `_DEFAULT_PARAMS` as base defaults; customized parameters and customizable friendly aliases (`display_name`) are saved to `remotes/<id>.override.json`.
+- **RemoteController constructor**: `RemoteController(remote_id, remote_type="", conf_path=None)`.
+- **RemoteController info**: `get_info()["name"]` returns `display_name` if present, falling back to `remote_id`.
+- **Mountpoint `auto` on Windows**: passes `*` as the mountpoint argument (auto-assign drive letter).
 
 ---
 

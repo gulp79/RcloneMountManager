@@ -71,6 +71,8 @@ def get_rclone_path():
         return str(local_bin)
     return shutil.which("rclone") or RCLONE_EXE
 
+OVERRIDES_DIR = REMOTES_DIR  # Per-remote override JSON files are kept in remotes/ for compatibility
+
 logger.info(f"BASE_DIR = {BASE_DIR}")
 logger.info(f"REMOTES_DIR = {REMOTES_DIR}")
 logger.info(f"RCLONE PATH = {get_rclone_path()}")
@@ -123,57 +125,95 @@ def get_available_drive_letters():
     available = [l for l in all_letters if l not in used]
     return ["Auto-assigned (*)"] + available + [l for l in all_letters if l in used]
 
-def get_provider_info(remote_name: str, config_name: str):
-    """Detect provider icon, tag, and descriptive title from remote name/config"""
-    name_lower = f"{remote_name} {config_name}".lower()
-    if "drive" in name_lower or "gdrive" in name_lower:
-        return "☁️", "DRIVE", "Google Drive API"
-    elif "dropbox" in name_lower:
-        return "📦", "DROPBOX", "Dropbox API"
-    elif "crypt" in name_lower:
+def get_provider_info(remote_id: str, remote_type: str):
+    """Detect provider icon, tag, and descriptive title from remote id and rclone type field."""
+    combined = f"{remote_id} {remote_type}".lower()
+    if remote_type in ("drive",) or "drive" in combined or "gdrive" in combined:
+        return "☁️", "DRIVE", "Google Drive"
+    elif remote_type == "dropbox" or "dropbox" in combined:
+        return "📦", "DROPBOX", "Dropbox"
+    elif remote_type == "crypt" or "crypt" in combined:
         return "🔒", "CRYPT", "Rclone Crypt"
-    elif "photo" in name_lower:
+    elif remote_type == "googlephotos" or "photo" in combined:
         return "🖼️", "PHOTOS", "Google Photos"
-    elif "printer" in name_lower or "webdav" in name_lower:
-        return "🌐", "WEBDAV", "WebDAV Storage"
-    elif "onedrive" in name_lower:
+    elif remote_type == "webdav" or "webdav" in combined or "printer" in combined:
+        return "🌐", "WEBDAV", "WebDAV"
+    elif remote_type == "onedrive" or "onedrive" in combined:
         return "☁️", "ONEDRIVE", "Microsoft OneDrive"
-    elif "pcloud" in name_lower:
-        return "☁️", "PCLOUD", "pCloud Storage"
-    elif "ftp" in name_lower:
+    elif remote_type == "pcloud" or "pcloud" in combined:
+        return "☁️", "PCLOUD", "pCloud"
+    elif remote_type in ("ftp", "sftp") or "ftp" in combined:
         return "📡", "FTP", "FTP / SFTP"
+    elif remote_type == "s3" or " s3" in combined:
+        return "🪣", "S3", "Amazon S3"
+    elif remote_type == "b2" or " b2" in combined:
+        return "💾", "B2", "Backblaze B2"
+    elif remote_type == "local":
+        return "🗂️", "LOCAL", "Local Filesystem"
     else:
         return "💾", "REMOTE", "Cloud Storage"
 
-def create_sample_file():
-    """Create _sample.properties template if missing"""
-    sample_path = REMOTES_DIR / "_sample.properties"
-    if not sample_path.exists():
-        content = """# ============================================
-# SAMPLE REMOTE CONFIGURATION
-# ============================================
-# Copy this file, rename it (e.g. pcloud.properties), and adjust settings.
 
-[General]
-name = Sample Remote
-remote_name = remote:
-mountpoint = auto
-volname = MyRemoteVolume
+# --- RCLONE.CONF DISCOVERY ---
 
-[Rclone]
-config_path = rclone.conf
-extra_flags = --links
+def resolve_rclone_conf() -> Path | None:
+    """
+    Locate the active rclone.conf file using the following priority order:
+    1. BASE_DIR/rclone.conf  (portable mode — takes precedence)
+    2. RCLONE_CONFIG environment variable
+    3. OS default paths: %APPDATA%/rclone/rclone.conf (Windows),
+       ~/.config/rclone/rclone.conf (Linux/macOS)
+    Returns the first existing path, or None if not found.
+    """
+    # 1. Portable local copy
+    local = BASE_DIR / "rclone.conf"
+    if local.exists():
+        return local
 
-[Defaults]
-vfs-cache-mode = full
-vfs-cache-max-age = 30m
-dir-cache-time = 1m
-vfs-read-ahead = 128M
-bwlimit = off
-"""
-        with open(sample_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        logger.info("Created sample configuration file")
+    # 2. Environment variable
+    env_path = os.environ.get("RCLONE_CONFIG", "")
+    if env_path:
+        p = Path(env_path)
+        if p.exists():
+            return p
+
+    # 3. OS default
+    if platform.system() == "Windows":
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            candidate = Path(appdata) / "rclone" / "rclone.conf"
+            if candidate.exists():
+                return candidate
+    else:
+        candidate = Path.home() / ".config" / "rclone" / "rclone.conf"
+        if candidate.exists():
+            return candidate
+
+    return None
+
+
+def read_rclone_conf_remotes(conf_path: Path) -> list[dict]:
+    """
+    Parse rclone.conf and return a list of remote definitions.
+    Each entry is a dict with keys: id, name, type, conf_path.
+    Sections starting with '[' that contain a 'type' key are treated as remotes.
+    The reserved section [RCLONE_ENCRYPT_V0] is ignored.
+    """
+    cfg = configparser.RawConfigParser()
+    cfg.read(conf_path, encoding="utf-8")
+
+    remotes = []
+    for section in cfg.sections():
+        if section.upper().startswith("RCLONE_ENCRYPT"):
+            continue
+        remote_type = cfg.get(section, "type", fallback="")
+        remotes.append({
+            "id": section,
+            "name": section,          # rclone sections use the remote name directly
+            "type": remote_type,
+            "conf_path": conf_path,
+        })
+    return remotes
 
 # --- SYNTAX HIGHLIGHTER FOR LOG STREAM ---
 
@@ -231,48 +271,63 @@ class LogHighlighter(QSyntaxHighlighter):
 
 # --- CONTROLLER LOGIC ---
 
+# Default mount parameters used when no override exists for a remote.
+_DEFAULT_PARAMS = {
+    "display_name": "",
+    "vfs-cache-mode": "full",
+    "vfs-cache-max-age": "30m",
+    "dir-cache-time": "1m",
+    "vfs-read-ahead": "128M",
+    "bwlimit": "off",
+    "extra_flags": "--links",
+    "mountpoint": "auto",
+    "auto_mount": False,
+    "clean_logs": True,
+}
+
+
 class RemoteController:
-    """Manages state, configuration, and QProcess execution for a single remote"""
-    
-    def __init__(self, config_file: Path):
-        self.config_file = config_file
-        self.config_id = config_file.stem
+    """Manages state, configuration, and QProcess execution for a single rclone remote.
+
+    Configuration is sourced directly from rclone.conf.  Per-remote mount
+    settings (mountpoint, VFS flags, bandwidth, …) are persisted in a lightweight
+    JSON override file (remotes/<id>.override.json) rather than a .properties file.
+    """
+
+    def __init__(self, remote_id: str, remote_type: str = "", conf_path: Path | None = None):
+        """
+        Args:
+            remote_id:   Section name from rclone.conf (e.g. ``"gdrive"``).
+            remote_type: Provider type string from rclone.conf (e.g. ``"drive"``).
+            conf_path:   Absolute path to the rclone.conf file to use.  When None
+                         the value from :func:`resolve_rclone_conf` is used as a
+                         fallback at mount time.
+        """
+        self.config_id = remote_id
+        self.remote_type = remote_type
+        self.conf_path = conf_path  # resolved rclone.conf; may be None
         self.process = None
         self.is_running = False
         self.mount_timestamp = None
         self.error_message = ""
-        
-        # Load static configuration
-        self.cfg = configparser.ConfigParser()
-        self.cfg.read(config_file, encoding='utf-8')
-        
+
         # Dedicated directories for this remote
         self.remote_cache = CACHE_DIR / self.config_id
         self.remote_log_dir = LOGS_DIR / self.config_id
         self.log_file = self.remote_log_dir / "rclone.log"
-        
-        # Load persisted overrides
-        self.overrides_file = REMOTES_DIR / f"{self.config_id}.override.json"
+
+        # Load persisted overrides (created by save_overrides on first mount)
+        self.overrides_file = OVERRIDES_DIR / f"{self.config_id}.override.json"
         self.runtime_params = self._load_defaults()
-        
-        logger.info(f"Initialized remote controller: {self.config_id}")
-        
-    def _load_defaults(self):
-        """Load default settings from properties file and merge saved JSON overrides"""
-        params = {
-            "vfs-cache-mode": self.cfg.get("Defaults", "vfs-cache-mode", fallback="full"),
-            "vfs-cache-max-age": self.cfg.get("Defaults", "vfs-cache-max-age", fallback="30m"),
-            "dir-cache-time": self.cfg.get("Defaults", "dir-cache-time", fallback="1m"),
-            "vfs-read-ahead": self.cfg.get("Defaults", "vfs-read-ahead", fallback="128M"),
-            "bwlimit": self.cfg.get("Defaults", "bwlimit", fallback="off"),
-            "extra_flags": self.cfg.get("Rclone", "extra_flags", fallback="--links"),
-            "mountpoint": self.cfg.get("General", "mountpoint", fallback="auto"),
-            "auto_mount": False,
-            "clean_logs": True
-        }
+
+        logger.info(f"Initialized remote controller: {self.config_id} (type={self.remote_type})")
+
+    def _load_defaults(self) -> dict:
+        """Return mount parameters: global defaults merged with any saved JSON overrides."""
+        params = dict(_DEFAULT_PARAMS)
         if self.overrides_file.exists():
             try:
-                with open(self.overrides_file, 'r', encoding='utf-8') as f:
+                with open(self.overrides_file, "r", encoding="utf-8") as f:
                     saved = json.load(f)
                     params.update(saved)
                 logger.info(f"Loaded overrides for {self.config_id}")
@@ -280,41 +335,70 @@ class RemoteController:
                 logger.error(f"Error loading overrides for {self.config_id}: {e}")
         return params
 
-    def save_overrides(self, params):
+    def save_overrides(self, params: dict):
+        """Persist mount parameters as a JSON override file."""
+        OVERRIDES_DIR.mkdir(parents=True, exist_ok=True)
         self.runtime_params.update(params)
-        with open(self.overrides_file, 'w', encoding='utf-8') as f:
+        with open(self.overrides_file, "w", encoding="utf-8") as f:
             json.dump(self.runtime_params, f, indent=4)
         logger.info(f"Saved overrides for {self.config_id}")
 
-    def get_info(self):
+    def get_info(self) -> dict:
+        """Return basic remote metadata used by the UI."""
+        display_name = self.runtime_params.get("display_name", "").strip()
+        effective_name = display_name if display_name else self.config_id
         return {
-            "name": self.cfg.get("General", "name", fallback=self.config_id),
-            "remote": self.cfg.get("General", "remote_name", fallback=f"{self.config_id}:"),
-            "mountpoint": self.runtime_params.get("mountpoint", self.cfg.get("General", "mountpoint", fallback="auto"))
+            "name": effective_name,
+            "display_name": display_name,
+            "remote": f"{self.config_id}:",
+            "type": self.remote_type,
+            "mountpoint": self.runtime_params.get("mountpoint", "auto"),
         }
 
-    def start_mount(self, params_ui):
+    def get_mountpoint(self) -> str:
+        """Return a human-readable mountpoint string for display in the UI."""
+        mp = self.runtime_params.get("mountpoint", "auto")
+        if not mp or mp.lower() == "auto" or mp == "*":
+            return "Auto-assigned"
+        return mp
+
+    def _get_conf_arg(self) -> str | None:
+        """Resolve the ``--config`` argument for the rclone command, or None."""
+        # Controller-level conf_path takes precedence (set from rclone.conf discovery)
+        if self.conf_path and self.conf_path.exists():
+            return str(self.conf_path)
+        # Fallback: re-resolve at mount time
+        fallback = resolve_rclone_conf()
+        if fallback:
+            return str(fallback)
+        return None
+
+    def start_mount(self, params_ui: dict):
+        """Build the rclone mount command and start a QProcess.
+
+        Args:
+            params_ui: Mount parameters collected from the UI (overrides defaults).
+        """
         if self.is_running:
             logger.warning(f"Mount already running for {self.config_id}")
             return
 
-        # Save UI parameter overrides
+        # Persist UI parameters
         self.save_overrides(params_ui)
-        
+
         # Prepare directories
-        self.remote_cache.mkdir(exist_ok=True)
-        self.remote_log_dir.mkdir(exist_ok=True)
+        self.remote_cache.mkdir(parents=True, exist_ok=True)
+        self.remote_log_dir.mkdir(parents=True, exist_ok=True)
 
         cmd = [get_rclone_path(), "mount"]
-        
-        # Remote & Mountpoint
-        remote = self.cfg.get("General", "remote_name", fallback=f"{self.config_id}:")
-        selected_mp = params_ui.get("mountpoint", self.cfg.get("General", "mountpoint", fallback="auto"))
-        
-        # Mountpoint argument resolution
+
+        # Remote & mountpoint
+        remote = f"{self.config_id}:"
+        selected_mp = params_ui.get("mountpoint", self.runtime_params.get("mountpoint", "auto"))
+
         if platform.system() == "Windows":
             if "auto" in selected_mp.lower() or "*" in selected_mp:
-                cmd.extend([remote, "*"]) # Auto-assign drive letter
+                cmd.extend([remote, "*"])  # auto-assign drive letter
             elif ":" in selected_mp:
                 drive_letter = selected_mp.split()[0]
                 cmd.extend([remote, drive_letter])
@@ -323,26 +407,21 @@ class RemoteController:
         else:
             cmd.extend([remote, selected_mp])
 
-        # Rclone config path resolution
-        conf_path = self.cfg.get("Rclone", "config_path", fallback=None)
-        if conf_path:
-            if not os.path.isabs(conf_path):
-                conf_path = str(BASE_DIR / conf_path)
-            if Path(conf_path).exists():
-                cmd.append(f"--config={conf_path}")
-            else:
-                logger.warning(f"Config file not found: {conf_path}, using default")
-        elif (BASE_DIR / "rclone.conf").exists():
-            cmd.append(f"--config={str(BASE_DIR / 'rclone.conf')}")
+        # rclone config path
+        conf_arg = self._get_conf_arg()
+        if conf_arg:
+            cmd.append(f"--config={conf_arg}")
+        else:
+            logger.warning(f"No rclone.conf found for {self.config_id}; relying on rclone default")
 
-        # VFS & Performance Parameters
+        # VFS & performance parameters
         cache_mode = params_ui.get("vfs-cache-mode", "full")
         if " " in cache_mode:
             cache_mode = cache_mode.split()[0]
         cmd.append(f"--vfs-cache-mode={cache_mode}")
         cmd.append(f"--vfs-cache-max-age={params_ui.get('vfs-cache-max-age', '30m')}")
         cmd.append(f"--dir-cache-time={params_ui.get('dir-cache-time', '1m')}")
-        
+
         read_ahead = params_ui.get("vfs-read-ahead", "").strip()
         if read_ahead:
             cmd.append(f"--vfs-read-ahead={read_ahead}")
@@ -355,68 +434,64 @@ class RemoteController:
         cmd.append(f"--log-file={str(self.log_file)}")
         cmd.append("--verbose")
 
-        # Volname
-        volname = self.cfg.get("General", "volname", fallback=None)
-        if volname:
-            cmd.append(f"--volname={volname}")
-
         # Extra flags
-        extra_flags = params_ui.get("extra_flags", "").strip() or self.cfg.get("Rclone", "extra_flags", fallback="")
+        extra_flags = params_ui.get("extra_flags", "").strip()
         if extra_flags:
             cmd.extend(extra_flags.split())
 
-        cmd_str = ' '.join(cmd)
+        cmd_str = " ".join(cmd)
         logger.info(f"Executing mount command for {self.config_id}: {cmd_str}")
 
         self.process = QProcess()
         self.process.setProgram(cmd[0])
         self.process.setArguments(cmd[1:])
         self.process.start()
-        
+
         self.is_running = True
         self.mount_timestamp = datetime.now()
         self.error_message = ""
 
-    def stop_mount(self, clean_logs=True):
+    def stop_mount(self, clean_logs: bool = True):
+        """Stop the running rclone mount process gracefully."""
         if not self.process or not self.is_running:
             logger.warning(f"No running mount to stop for {self.config_id}")
             return
 
         logger.info(f"Stopping mount for {self.config_id}...")
-        
-        # Graceful shutdown with taskkill / fusermount fallback
+
         if platform.system() == "Windows":
             self.process.terminate()
             if not self.process.waitForFinished(3000):
                 logger.warning(f"Terminate timeout for {self.config_id}, using taskkill")
                 try:
-                    subprocess.run(f"taskkill /F /T /PID {self.process.processId()}", 
-                                   shell=True, check=True)
+                    subprocess.run(
+                        f"taskkill /F /T /PID {self.process.processId()}",
+                        shell=True, check=True,
+                    )
                 except subprocess.CalledProcessError as e:
                     logger.error(f"Taskkill failed: {e}")
         else:
-            mountpoint = self.cfg.get("General", "mountpoint", fallback="auto")
-            if mountpoint != "auto":
+            mountpoint = self.runtime_params.get("mountpoint", "auto")
+            if mountpoint not in ("auto", "*"):
                 try:
                     subprocess.run(["fusermount", "-u", mountpoint], check=True)
                     logger.info(f"Fusermount successful for {mountpoint}")
                 except subprocess.CalledProcessError as e:
                     logger.error(f"Fusermount failed: {e}")
             self.process.terminate()
-        
+
         self.process.waitForFinished()
         self.is_running = False
         self.process = None
-        
-        # Cleanup cache/logs
+
         self._cleanup(clean_logs)
         logger.info(f"Mount stopped for {self.config_id}")
 
-    def _cleanup(self, clean_logs):
-        """Safely cleans up cache and logs within BASE_DIR"""
+    def _cleanup(self, clean_logs: bool):
+        """Safely clean up cache and logs within BASE_DIR."""
         logger.info(f"Cleaning up {self.config_id}... (clean_logs={clean_logs})")
-        
-        # Safety Check: Guarantee deletion remains strictly inside application directory
+
+        # Safety Check: deletion must remain strictly inside the application directory
         if self.remote_cache.exists() and self.remote_cache.is_relative_to(BASE_DIR):
             try:
                 shutil.rmtree(self.remote_cache, ignore_errors=True)
@@ -433,10 +508,10 @@ class RemoteController:
             except Exception as e:
                 logger.error(f"Error cleaning logs: {e}")
 
-    def get_mountpoint(self):
-        """Return human-readable effective mountpoint"""
-        mp = self.runtime_params.get("mountpoint", self.cfg.get("General", "mountpoint", fallback="auto"))
-        if platform.system() == "Windows" and ("auto" in mp.lower() or "*" in mp):
+    def get_mountpoint(self) -> str:
+        """Return a human-readable effective mountpoint for display in the UI."""
+        mp = self.runtime_params.get("mountpoint", "auto")
+        if not mp or mp.lower() == "auto" or mp == "*":
             return "Auto-assigned"
         return mp
 
@@ -551,14 +626,15 @@ class RemoteListItem(QWidget):
     """Custom sidebar list item with compact density (32px), icons, and status badges"""
     clicked = Signal(str)
     
-    def __init__(self, remote_id: str, name: str, parent=None):
+    def __init__(self, remote_id: str, name: str, remote_type: str = "", parent=None):
         super().__init__(parent)
         self.setObjectName("RemoteListItem")
         self.remote_id = remote_id
         self.name = name
+        self.remote_type = remote_type
         self.is_selected = False
         
-        icon_str, tag_str, _ = get_provider_info(remote_id, name)
+        icon_str, tag_str, _ = get_provider_info(remote_id, remote_type)
         self.provider_tag = tag_str
         
         layout = QHBoxLayout(self)
@@ -610,6 +686,11 @@ class RemoteListItem(QWidget):
             """)
         self.update_style()
 
+    def update_name(self, name: str):
+        """Update display name shown in the sidebar item"""
+        self.name = name
+        self.name_label.setText(name)
+
     def set_status(self, status: str):
         self.status_indicator.update_status(status)
 
@@ -655,6 +736,7 @@ class RemoteListItem(QWidget):
 class RemoteWidget(QWidget):
     """Right-hand remote details panel: Overview, Actions, Collapsible Settings, and Terminal Stream"""
     status_changed = Signal()
+    name_changed = Signal(str, str)
     
     def __init__(self):
         super().__init__()
@@ -1070,6 +1152,34 @@ class RemoteWidget(QWidget):
         flags_container.addWidget(flags_desc)
         grid_layout.addLayout(flags_container, 1, 2)
         
+        # Row 2: Friendly Display Name (spanning 3 columns)
+        name_container = QVBoxLayout()
+        name_container.setSpacing(3)
+        name_lbl_row = QHBoxLayout()
+        name_label = QLabel("Friendly Name (Alias)")
+        name_label.setFont(QFont("Segoe UI", 9, QFont.Bold))
+        name_label.setStyleSheet("color: #e2e8f0;")
+        name_lbl_row.addWidget(name_label)
+        name_lbl_row.addStretch()
+        name_tag = QLabel("override")
+        name_tag.setFont(QFont("Consolas", 8))
+        name_tag.setStyleSheet("color: #38bdf8;")
+        name_lbl_row.addWidget(name_tag)
+        name_container.addLayout(name_lbl_row)
+        
+        self.edit_display_name = QLineEdit()
+        self.edit_display_name.setPlaceholderText("e.g. My Google Drive (leave empty to use remote id)")
+        self._style_line_edit(self.edit_display_name)
+        self.edit_display_name.textChanged.connect(self.on_display_name_changed)
+        name_container.addWidget(self.edit_display_name)
+        
+        name_desc = QLabel("Custom alias shown in the sidebar list and window title. Stored in overrides.")
+        name_desc.setWordWrap(True)
+        name_desc.setFont(QFont("Segoe UI", 8))
+        name_desc.setStyleSheet("color: #64748b;")
+        name_container.addWidget(name_desc)
+        grid_layout.addLayout(name_container, 2, 0, 1, 3)
+        
         settings_outer_layout.addWidget(self.group_settings)
         
         # Closed by default to reclaim vertical space
@@ -1242,17 +1352,29 @@ class RemoteWidget(QWidget):
         self.btn_toggle_settings.setText(f"⚙️ VFS & PERFORMANCE SETTINGS  {arrow}")
 
     def reset_settings_to_defaults(self):
-        """Reset form fields to defaults defined in .properties file"""
+        """Reset form fields to the global built-in defaults, discarding any active overrides."""
         if not self.current_controller:
             return
-        cfg = self.current_controller.cfg
-        self.combo_cache_mode.setCurrentText(cfg.get("Defaults", "vfs-cache-mode", fallback="full"))
-        self.combo_cache_age.setCurrentText(cfg.get("Defaults", "vfs-cache-max-age", fallback="30m"))
-        self.combo_dir_cache.setCurrentText(cfg.get("Defaults", "dir-cache-time", fallback="1m"))
-        self.edit_read_ahead.setText(cfg.get("Defaults", "vfs-read-ahead", fallback="128M"))
-        self.edit_bwlimit.setText(cfg.get("Defaults", "bwlimit", fallback="off"))
-        self.edit_extra_flags.setText(cfg.get("Rclone", "extra_flags", fallback="--links"))
+        defaults = dict(_DEFAULT_PARAMS)
+        self.edit_display_name.setText(defaults["display_name"])
+        self.combo_cache_mode.setCurrentText(defaults["vfs-cache-mode"])
+        self.combo_cache_age.setCurrentText(defaults["vfs-cache-max-age"])
+        self.combo_dir_cache.setCurrentText(defaults["dir-cache-time"])
+        self.edit_read_ahead.setText(defaults["vfs-read-ahead"])
+        self.edit_bwlimit.setText(defaults["bwlimit"])
+        self.edit_extra_flags.setText(defaults["extra_flags"])
         logger.info(f"Reset settings to defaults for {self.current_controller.config_id}")
+
+    def on_display_name_changed(self, text: str):
+        """Update live UI and persist custom friendly name to overrides when edited"""
+        if not self.current_controller:
+            return
+        clean = text.strip()
+        effective = clean if clean else self.current_controller.config_id
+        self.lbl_name.setText(effective)
+        self.current_controller.runtime_params["display_name"] = clean
+        self.current_controller.save_overrides({"display_name": clean})
+        self.name_changed.emit(self.current_controller.config_id, effective)
 
     def on_mountpoint_changed(self, text):
         letter = text.split()[0] if text else "Auto"
@@ -1271,32 +1393,38 @@ class RemoteWidget(QWidget):
         self.log_viewer.clear()
 
     def load_remote(self, controller: RemoteController):
+        """Load a remote controller into the details panel and populate all fields."""
         self.current_controller = controller
         info = controller.get_info()
-        name = info['name']
-        remote = info['remote']
-        
+        name = info["name"]
+        remote = info["remote"]
+
         self.lbl_name.setText(name)
         self.lbl_remote_tag.setText(remote)
-        
-        icon_str, tag_str, _ = get_provider_info(controller.config_id, name)
+
+        icon_str, tag_str, _ = get_provider_info(controller.config_id, controller.remote_type)
         self.lbl_avatar_icon.setText(icon_str)
-        
+
+        # Friendly name
+        self.edit_display_name.blockSignals(True)
+        self.edit_display_name.setText(info.get("display_name", ""))
+        self.edit_display_name.blockSignals(False)
+
         # Load parameters
         params = controller.runtime_params
         mode = params.get("vfs-cache-mode", "full")
-        # Match combo item
+        # Match combo item (supports suffix like "full (Complete caching - Recommended)")
         for idx in range(self.combo_cache_mode.count()):
             if self.combo_cache_mode.itemText(idx).startswith(mode):
                 self.combo_cache_mode.setCurrentIndex(idx)
                 break
-        
+
         self.combo_cache_age.setCurrentText(params.get("vfs-cache-max-age", "30m"))
         self.combo_dir_cache.setCurrentText(params.get("dir-cache-time", "1m"))
         self.edit_read_ahead.setText(params.get("vfs-read-ahead", "128M"))
         self.edit_bwlimit.setText(params.get("bwlimit", "off"))
         self.edit_extra_flags.setText(params.get("extra_flags", "--links"))
-        
+
         # Mountpoint
         mp = params.get("mountpoint", info.get("mountpoint", "auto"))
         idx = self.combo_mountpoint.findText(mp)
@@ -1304,7 +1432,7 @@ class RemoteWidget(QWidget):
             self.combo_mountpoint.setCurrentIndex(idx)
         else:
             self.combo_mountpoint.setCurrentText(mp)
-            
+
         self.chk_auto_mount.setChecked(params.get("auto_mount", False))
         self.lbl_cache_dir.setText(f"VFS Cache Directory: cache/{controller.config_id}/")
         
@@ -1355,6 +1483,7 @@ class RemoteWidget(QWidget):
 
         cache_mode = self.combo_cache_mode.currentText().split()[0]
         params = {
+            "display_name": self.edit_display_name.text().strip(),
             "vfs-cache-mode": cache_mode,
             "vfs-cache-max-age": self.combo_cache_age.currentText(),
             "dir-cache-time": self.combo_dir_cache.currentText(),
@@ -1429,9 +1558,10 @@ class RemoteWidget(QWidget):
             subprocess.Popen(["xdg-open", str(path)])
 
     def on_show_command(self):
+        """Preview the rclone mount command that would be executed with current settings."""
         if not self.current_controller:
             return
-        
+
         cache_mode = self.combo_cache_mode.currentText().split()[0]
         params = {
             "vfs-cache-mode": cache_mode,
@@ -1440,13 +1570,13 @@ class RemoteWidget(QWidget):
             "vfs-read-ahead": self.edit_read_ahead.text(),
             "bwlimit": self.edit_bwlimit.text(),
             "extra_flags": self.edit_extra_flags.text(),
-            "mountpoint": self.combo_mountpoint.currentText()
+            "mountpoint": self.combo_mountpoint.currentText(),
         }
-        
+
         cmd = [get_rclone_path(), "mount"]
-        remote = self.current_controller.cfg.get("General", "remote_name", fallback=f"{self.current_controller.config_id}:")
+        remote = f"{self.current_controller.config_id}:"
         selected_mp = params["mountpoint"]
-        
+
         if platform.system() == "Windows":
             if "auto" in selected_mp.lower() or "*" in selected_mp:
                 cmd.extend([remote, "*"])
@@ -1456,28 +1586,30 @@ class RemoteWidget(QWidget):
                 cmd.extend([remote, selected_mp])
         else:
             cmd.extend([remote, selected_mp])
-        
+
+        # Config path
+        conf_arg = self.current_controller._get_conf_arg()
+        if conf_arg:
+            cmd.append(f"--config={conf_arg}")
+
         cmd.append(f"--vfs-cache-mode={params['vfs-cache-mode']}")
         cmd.append(f"--vfs-cache-max-age={params['vfs-cache-max-age']}")
         cmd.append(f"--dir-cache-time={params['dir-cache-time']}")
-        
+
         if params["vfs-read-ahead"].strip():
             cmd.append(f"--vfs-read-ahead={params['vfs-read-ahead'].strip()}")
         if params["bwlimit"].strip() and params["bwlimit"].strip().lower() != "off":
             cmd.append(f"--bwlimit={params['bwlimit'].strip()}")
-            
+
         cmd.append(f"--cache-dir={str(self.current_controller.remote_cache)}")
         cmd.append(f"--log-file={str(self.current_controller.log_file)}")
         cmd.append("--verbose")
-        
-        volname = self.current_controller.cfg.get("General", "volname", fallback=None)
-        if volname:
-            cmd.append(f"--volname={volname}")
+
         if params["extra_flags"].strip():
             cmd.extend(params["extra_flags"].strip().split())
-        
-        cmd_str = ' '.join(cmd)
-        
+
+        cmd_str = " ".join(cmd)
+
         msg = QMessageBox(self)
         msg.setWindowTitle("⌨️ Mount Command Preview")
         msg.setText("The following command will be executed:")
@@ -1774,6 +1906,7 @@ class MainWindow(QMainWindow):
         self.details_panel = RemoteWidget()
         self.details_panel.setStyleSheet("QWidget { background-color: #0c0e14; }")
         self.details_panel.status_changed.connect(self.on_remote_status_changed)
+        self.details_panel.name_changed.connect(self.on_remote_name_changed)
         self.details_scroll.setWidget(self.details_panel)
         main_layout.addWidget(self.details_scroll, 1)
         
@@ -1803,7 +1936,9 @@ class MainWindow(QMainWindow):
         sep_b1.setStyleSheet("color: #334155;")
         bottom_layout.addWidget(sep_b1)
         
-        conf_lbl = QLabel(f"Config: {(BASE_DIR / 'rclone.conf').name}")
+        conf_path = resolve_rclone_conf()
+        conf_name = conf_path.name if conf_path else "rclone.conf (not found)"
+        conf_lbl = QLabel(f"Config: {conf_name}")
         conf_lbl.setFont(QFont("Segoe UI", 8))
         conf_lbl.setStyleSheet("color: #64748b;")
         bottom_layout.addWidget(conf_lbl)
@@ -1827,7 +1962,6 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(bottom_bar)
         
         # Populate initial remotes
-        create_sample_file()
         self.refresh_remotes()
         
         # Global periodic refresh timer
@@ -1879,39 +2013,61 @@ class MainWindow(QMainWindow):
                 item.setHidden(not match)
 
     def refresh_remotes(self):
-        """Scan remotes directory, instantiate controllers, and populate sidebar list"""
+        """Discover remotes from rclone.conf and populate the sidebar list."""
         self.list_widget.clear()
         self.controllers = {}
-        
-        files = list(REMOTES_DIR.glob("*.properties"))
-        for f in files:
-            if f.name.startswith("_"): 
-                continue
-            
+
+        conf_path = resolve_rclone_conf()
+        if not conf_path:
+            logger.warning("No rclone.conf found. Sidebar will be empty.")
+            self.update_status_counts()
+            return
+
+        remotes = read_rclone_conf_remotes(conf_path)
+        for remote_def in remotes:
+            remote_id = remote_def["id"]
             try:
-                ctl = RemoteController(f)
-                self.controllers[f.stem] = ctl
-                
-                # Create custom remote row
-                item_widget = RemoteListItem(f.stem, ctl.get_info()["name"])
+                ctl = RemoteController(
+                    remote_id=remote_id,
+                    remote_type=remote_def.get("type", ""),
+                    conf_path=conf_path,
+                )
+                self.controllers[remote_id] = ctl
+
+                # Create custom remote row (using friendly name if set in overrides)
+                item_widget = RemoteListItem(
+                    remote_id,
+                    ctl.get_info()["name"],
+                    remote_type=remote_def.get("type", ""),
+                )
                 item_widget.clicked.connect(self.on_remote_clicked)
-                
+
                 item = QListWidgetItem(self.list_widget)
                 item.setSizeHint(QSize(250, 32))
                 self.list_widget.addItem(item)
                 self.list_widget.setItemWidget(item, item_widget)
             except Exception as e:
-                logger.error(f"Error loading remote {f}: {e}")
-        
+                logger.error(f"Error loading remote '{remote_id}': {e}")
+
         self.update_status_counts()
         self.update_remote_list_statuses()
-        
+
         # Select first remote if available and nothing is selected
         if self.controllers and not self.details_panel.current_controller:
             first_id = next(iter(self.controllers.keys()))
             self.on_remote_clicked(first_id)
-        
-        logger.info(f"Loaded {len(self.controllers)} remotes")
+
+        logger.info(f"Loaded {len(self.controllers)} remotes from {conf_path}")
+
+    def on_remote_name_changed(self, remote_id: str, new_name: str):
+        """Update sidebar item label and top workspace text when a remote's display name is changed"""
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            widget = self.list_widget.itemWidget(item)
+            if isinstance(widget, RemoteListItem) and widget.remote_id == remote_id:
+                widget.update_name(new_name)
+                break
+        self.lbl_active_workspace.setText(f"{new_name} — Active Workspace")
 
     def update_status_counts(self):
         """Update active and inactive counter badges"""
@@ -1984,11 +2140,34 @@ class MainWindow(QMainWindow):
             self.list_widget.setFocus()
 
     def on_add_remote(self):
-        """Open remotes directory in file manager or prompt template creation"""
-        if platform.system() == "Windows":
-            os.startfile(str(REMOTES_DIR))
-        else:
-            subprocess.Popen(["xdg-open", str(REMOTES_DIR)])
+        """Launch rclone config in a terminal to let the user add or edit remotes."""
+        rclone = get_rclone_path()
+        conf_path = resolve_rclone_conf()
+        try:
+            if platform.system() == "Windows":
+                args = ["start", "cmd", "/k", rclone, "config"]
+                if conf_path:
+                    args = ["start", "cmd", "/k", rclone, "--config", str(conf_path), "config"]
+                subprocess.Popen(args, shell=True)
+            else:
+                args = [rclone, "config"]
+                if conf_path:
+                    args = [rclone, "--config", str(conf_path), "config"]
+                # Try common terminal emulators
+                for term in ("gnome-terminal", "xterm", "konsole"):
+                    if shutil.which(term):
+                        subprocess.Popen([term, "--"] + args)
+                        break
+                else:
+                    subprocess.Popen(args)
+            logger.info("Launched rclone config")
+        except Exception as e:
+            logger.error(f"Failed to launch rclone config: {e}")
+            QMessageBox.warning(
+                self,
+                "⚠️ Could not open rclone config",
+                f"Run the following command manually to add or edit remotes:\n\n{rclone} config",
+            )
 
     def on_open_config_folder(self):
         """Open application directory in file manager"""

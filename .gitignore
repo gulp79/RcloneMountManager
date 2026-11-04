@@ -53,3 +53,13 @@ artifacts/
 
 # OS
 .DS_Store
+
+
+# Local / Runtime Secrets & Data
+rclone.conf
+test_*.conf
+cache/
+logs/
+remotes/*.override.json
+remotes/*.properties
+!remotes/.gitkeep

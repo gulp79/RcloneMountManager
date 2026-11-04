@@ -7,7 +7,7 @@ from PySide6.QtGui import QMouseEvent
 from PySide6.QtCore import Qt, QSize, QEvent, QPointF
 
 class TestRcloneMountManager(unittest.TestCase):
-    
+
     @classmethod
     def setUpClass(cls):
         # Create a single QApplication in offscreen mode
@@ -25,93 +25,99 @@ class TestRcloneMountManager(unittest.TestCase):
         self.assertIsNotNone(StatusIndicator)
 
     def test_remote_controller_initialization(self):
-        """Verify RemoteController parses general settings correctly from properties file"""
-        from RcloneMountManager import RemoteController
-        
-        # Create a temp properties file manually to avoid external dependency issues
-        config_file = Path("test_remote.properties")
-        content = """[General]
-name = Test Cloud Storage
-remote_name = test_remote:
-mountpoint = Z:
-volname = TestVolume
+        """Verify RemoteController initialises correctly from a rclone.conf section"""
+        from RcloneMountManager import RemoteController, _DEFAULT_PARAMS
 
-[Rclone]
-config_path = rclone.conf
-extra_flags = --links
+        # Create a minimal rclone.conf with one remote section
+        conf_file = Path("test_rclone.conf")
+        conf_file.write_text(
+            "[test_remote]\ntype = drive\nclient_id = abc123\n",
+            encoding="utf-8",
+        )
 
-[Defaults]
-vfs-cache-mode = full
-vfs-cache-max-age = 30m
-dir-cache-time = 1m
-"""
-        config_file.write_text(content, encoding="utf-8")
-        
         try:
-            # Initialize controller
-            controller = RemoteController(config_file)
+            controller = RemoteController(
+                remote_id="test_remote",
+                remote_type="drive",
+                conf_path=conf_file,
+            )
             info = controller.get_info()
-            
-            self.assertEqual(info["name"], "Test Cloud Storage")
+
+            # Name and remote token are derived from the section name
+            self.assertEqual(info["name"], "test_remote")
             self.assertEqual(info["remote"], "test_remote:")
-            self.assertEqual(info["mountpoint"], "Z:")
-            self.assertEqual(controller.runtime_params["vfs-cache-mode"], "full")
-            self.assertEqual(controller.runtime_params["vfs-cache-max-age"], "30m")
-            self.assertEqual(controller.runtime_params["dir-cache-time"], "1m")
+            self.assertEqual(info["type"], "drive")
+
+            # Runtime params must be populated from built-in defaults
+            self.assertEqual(controller.runtime_params["vfs-cache-mode"], _DEFAULT_PARAMS["vfs-cache-mode"])
+            self.assertEqual(controller.runtime_params["vfs-cache-max-age"], _DEFAULT_PARAMS["vfs-cache-max-age"])
+            self.assertEqual(controller.runtime_params["dir-cache-time"], _DEFAULT_PARAMS["dir-cache-time"])
+            self.assertEqual(controller.runtime_params["vfs-read-ahead"], _DEFAULT_PARAMS["vfs-read-ahead"])
+            self.assertEqual(controller.runtime_params["bwlimit"], _DEFAULT_PARAMS["bwlimit"])
+
+            # Test customizable friendly display name in overrides
+            controller.save_overrides({"display_name": "My Work Drive"})
+            updated_info = controller.get_info()
+            self.assertEqual(updated_info["name"], "My Work Drive")
+            self.assertEqual(updated_info["display_name"], "My Work Drive")
         finally:
-            if config_file.exists():
-                config_file.unlink()
+            if conf_file.exists():
+                conf_file.unlink()
+            # Remove any override file that may have been created
+            override = Path("remotes") / "test_remote.override.json"
+            if override.exists():
+                override.unlink()
 
     def test_mainwindow_layout_and_elements(self):
         """Verify MainWindow layout structure and scrollbar components exist and are properly configured"""
         from RcloneMountManager import MainWindow
-        
+
         window = MainWindow()
-        
+
         # Check that main elements exist
         self.assertTrue(hasattr(window, "list_widget"))
         self.assertTrue(hasattr(window, "details_panel"))
         self.assertTrue(hasattr(window, "details_scroll"))
-        
+
         # Verify that details_scroll is a QScrollArea
         self.assertIsInstance(window.details_scroll, QScrollArea)
         self.assertEqual(window.details_scroll.widget(), window.details_panel)
         self.assertTrue(window.details_scroll.widgetResizable())
         self.assertEqual(window.details_scroll.verticalScrollBarPolicy(), Qt.ScrollBarAsNeeded)
         self.assertEqual(window.details_scroll.horizontalScrollBarPolicy(), Qt.ScrollBarAlwaysOff)
-        
+
         # Verify left sidebar QListWidget settings
         self.assertIsInstance(window.list_widget, QListWidget)
         self.assertEqual(window.list_widget.verticalScrollBarPolicy(), Qt.ScrollBarAsNeeded)
         self.assertEqual(window.list_widget.horizontalScrollBarPolicy(), Qt.ScrollBarAlwaysOff)
         self.assertEqual(window.list_widget.spacing(), 1)
-        
+
         # Clean up window
         window.close()
 
     def test_compact_remote_list_item_properties(self):
         """Verify RemoteListItem has compact margins (8, 4, 8, 4), spacing, and vertical alignment"""
         from RcloneMountManager import RemoteListItem, StatusIndicator
-        
-        item_widget = RemoteListItem("drive1", "Google Drive Personal")
+
+        item_widget = RemoteListItem("drive1", "Google Drive Personal", remote_type="drive")
         layout = item_widget.layout()
-        
+
         # Check layout margins: (8, 4, 8, 4)
         margins = layout.contentsMargins()
         self.assertEqual(margins.top(), 4)
         self.assertEqual(margins.bottom(), 4)
         self.assertEqual(margins.left(), 8)
         self.assertEqual(margins.right(), 8)
-        
+
         # Check spacing
         self.assertEqual(layout.spacing(), 8)
         self.assertEqual(layout.alignment(), Qt.AlignVCenter)
-        
+
         # Check status indicator compact size
         self.assertIsInstance(item_widget.status_indicator, StatusIndicator)
         self.assertEqual(item_widget.status_indicator.width(), 10)
         self.assertEqual(item_widget.status_indicator.height(), 10)
-        
+
         # Verify click emission
         clicked_ids = []
         item_widget.clicked.connect(lambda rid: clicked_ids.append(rid))
@@ -122,10 +128,10 @@ dir-cache-time = 1m
     def test_sidebar_density_and_filter(self):
         """Verify that 30 remotes can be populated, sizeHint is 32px, and search filter works"""
         from RcloneMountManager import MainWindow, RemoteListItem
-        
+
         window = MainWindow()
         window.list_widget.clear()
-        
+
         # Populate with 30 mock remotes
         for i in range(30):
             rid = f"remote_{i:02d}"
@@ -135,27 +141,27 @@ dir-cache-time = 1m
             item.setSizeHint(QSize(250, 32))
             window.list_widget.addItem(item)
             window.list_widget.setItemWidget(item, item_widget)
-        
+
         self.assertEqual(window.list_widget.count(), 30)
-        
+
         # Test height of each item
         first_item = window.list_widget.item(0)
         item_height = first_item.sizeHint().height()
         self.assertEqual(item_height, 32)
-        
+
         # Percentage reduction from legacy 45px: (45 - 32) / 45 = 28.89% ~ 30%
         self.assertLess(item_height, 45)
-        
+
         # Test search filter functionality
         self.assertTrue(hasattr(window, "search_filter"))
         window.search_filter.setText("Backup")
         visible_count = sum(1 for i in range(window.list_widget.count()) if not window.list_widget.item(i).isHidden())
         self.assertEqual(visible_count, 15)
-        
+
         window.search_filter.setText("")
         visible_count = sum(1 for i in range(window.list_widget.count()) if not window.list_widget.item(i).isHidden())
         self.assertEqual(visible_count, 30)
-        
+
         # Verify selection synchronization
         window.on_remote_clicked("remote_15")
         for i in range(window.list_widget.count()):
@@ -164,20 +170,20 @@ dir-cache-time = 1m
             if isinstance(widget, RemoteListItem) and widget.remote_id == "remote_15":
                 window.list_widget.setCurrentItem(item)
                 break
-        
+
         self.assertEqual(window.list_widget.currentItem().sizeHint().height(), 32)
         window.close()
 
     def test_remote_widget_layout_and_collapsible_settings(self):
         """Verify MOUNT/UNMOUNT location, utility buttons, and collapsible settings behavior"""
         from RcloneMountManager import RemoteWidget, ModernButton
-        
+
         widget = RemoteWidget()
-        
+
         # Verify action buttons exist and are ModernButton instances
         self.assertIsInstance(widget.btn_mount, ModernButton)
         self.assertIsInstance(widget.btn_unmount, ModernButton)
-        
+
         # Verify utility buttons exist
         self.assertTrue(hasattr(widget, "btn_open_mount"))
         self.assertTrue(hasattr(widget, "btn_open_logs"))
@@ -190,7 +196,8 @@ dir-cache-time = 1m
         self.assertTrue(hasattr(widget, "btn_clear_log"))
         self.assertTrue(hasattr(widget, "chk_auto_scroll"))
         self.assertTrue(hasattr(widget, "btn_reset_defaults"))
-        
+        self.assertTrue(hasattr(widget, "edit_display_name"))
+
         # Verify collapsible settings card and default state (closed by default)
         self.assertTrue(hasattr(widget, "settings_card"))
         self.assertTrue(hasattr(widget, "btn_toggle_settings"))
@@ -198,13 +205,13 @@ dir-cache-time = 1m
         self.assertFalse(widget.settings_expanded)
         self.assertTrue(widget.group_settings.isHidden())
         self.assertIn("▸", widget.btn_toggle_settings.text())
-        
+
         # Toggle settings to expand
         widget.toggle_settings()
         self.assertTrue(widget.settings_expanded)
         self.assertFalse(widget.group_settings.isHidden())
         self.assertIn("▾", widget.btn_toggle_settings.text())
-        
+
         # Toggle settings to collapse again
         widget.toggle_settings()
         self.assertFalse(widget.settings_expanded)
@@ -214,84 +221,84 @@ dir-cache-time = 1m
     def test_header_no_cloud_provider_pill(self):
         """Verify the cloud provider tag (e.g. 'Google Drive API') is removed from RemoteWidget header"""
         from RcloneMountManager import RemoteWidget
-        
+
         widget = RemoteWidget()
         self.assertFalse(hasattr(widget, "lbl_provider_tag"))
 
     def test_sidebar_keyboard_arrow_navigation_and_status_sync(self):
         """Verify keyboard navigation (Up/Down) selects remotes and status indicator syncs green when running"""
         from RcloneMountManager import MainWindow, RemoteListItem, RemoteController
-        
+
         window = MainWindow()
         window.list_widget.clear()
         window.controllers.clear()
-        
-        # Create temp controller properties
-        p1 = Path("test_r1.properties")
-        p2 = Path("test_r2.properties")
-        p1.write_text("[General]\nname=Cloud One\nremote_name=r1:\nmountpoint=X:\n", encoding="utf-8")
-        p2.write_text("[General]\nname=Cloud Two\nremote_name=r2:\nmountpoint=Y:\n", encoding="utf-8")
-        
+
+        # Instantiate controllers directly using the new rclone.conf-based API (no .properties files)
+        ctl1 = RemoteController(remote_id="test_r1", remote_type="drive")
+        ctl2 = RemoteController(remote_id="test_r2", remote_type="dropbox")
+        window.controllers["test_r1"] = ctl1
+        window.controllers["test_r2"] = ctl2
+
         try:
-            ctl1 = RemoteController(p1)
-            ctl2 = RemoteController(p2)
-            window.controllers["test_r1"] = ctl1
-            window.controllers["test_r2"] = ctl2
-            
             # Add item 1
             w1 = RemoteListItem("test_r1", "Cloud One")
             item1 = QListWidgetItem(window.list_widget)
             item1.setSizeHint(QSize(250, 32))
             window.list_widget.addItem(item1)
             window.list_widget.setItemWidget(item1, w1)
-            
+
             # Add item 2
             w2 = RemoteListItem("test_r2", "Cloud Two")
             item2 = QListWidgetItem(window.list_widget)
             item2.setSizeHint(QSize(250, 32))
             window.list_widget.addItem(item2)
             window.list_widget.setItemWidget(item2, w2)
-            
-            # Initial selection on item 1
+
+            # Initial selection on item 1 — lbl_name shows the remote_id (section name from rclone.conf)
             window.list_widget.setCurrentItem(item1)
-            self.assertEqual(window.details_panel.lbl_name.text(), "Cloud One")
-            
+            self.assertEqual(window.details_panel.lbl_name.text(), "test_r1")
+
             # Simulate keyboard arrow Down navigation: select item 2
             window.list_widget.setCurrentItem(item2)
-            self.assertEqual(window.details_panel.lbl_name.text(), "Cloud Two")
+            self.assertEqual(window.details_panel.lbl_name.text(), "test_r2")
             self.assertTrue(w2.is_selected)
             self.assertFalse(w1.is_selected)
-            
+
             # Simulate keyboard arrow Up navigation: select item 1
             window.list_widget.setCurrentItem(item1)
-            self.assertEqual(window.details_panel.lbl_name.text(), "Cloud One")
+            self.assertEqual(window.details_panel.lbl_name.text(), "test_r1")
             self.assertTrue(w1.is_selected)
             self.assertFalse(w2.is_selected)
-            
+
             # Test status indicator synchronization: stopped initially
             window.update_remote_list_statuses()
             self.assertEqual(w1.status_indicator.status, "stopped")
             self.assertEqual(w2.status_indicator.status, "stopped")
-            
+
             # Simulate remote 1 is mounted/running
             ctl1.is_running = True
             window.update_remote_list_statuses()
             self.assertEqual(w1.status_indicator.status, "running")
             self.assertEqual(w2.status_indicator.status, "stopped")
-            
+
             # Simulate remote 1 unmounted
             ctl1.is_running = False
             window.update_remote_list_statuses()
             self.assertEqual(w1.status_indicator.status, "stopped")
             self.assertEqual(w2.status_indicator.status, "stopped")
-            
+
+            # Test updating friendly name via edit_display_name updates header and sidebar row
+            window.details_panel.edit_display_name.setText("Primary Drive")
+            self.assertEqual(window.details_panel.lbl_name.text(), "Primary Drive")
+            self.assertEqual(w1.name, "Primary Drive")
+            self.assertEqual(w1.name_label.text(), "Primary Drive")
+
         finally:
             window.close()
-            if p1.exists():
-                p1.unlink()
-            if p2.exists():
-                p2.unlink()
+            for r_id in ("test_r1", "test_r2"):
+                ov = Path("remotes") / f"{r_id}.override.json"
+                if ov.exists():
+                    ov.unlink()
 
 if __name__ == "__main__":
     unittest.main()
-

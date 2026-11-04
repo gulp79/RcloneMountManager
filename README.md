@@ -16,10 +16,11 @@ A modern, high-contrast dark-themed desktop application for managing rclone moun
 ## ✨ Features
 
 ### Core Functionality
-- 📂 **Multi-Remote Management**: Manage and mount multiple cloud storage backends simultaneously.
+- 📂 **Direct `rclone.conf` Integration**: Available remotes are discovered and populated automatically from your existing `rclone.conf` without manual configuration duplication.
 - 🚀 **One-Click Operations**: Fast Mount (green gradient) and Unmount (red alert) controls with process tracking.
 - ⚙️ **Collapsible Performance Tuning**: Real-time adjustment of VFS Cache Mode, Cache Max Age, Directory Cache Time, Read Ahead Buffer, Bandwidth Limit, and Extra CLI Flags without touching raw config files.
-- 🔄 **Runtime JSON Overrides**: Parameter edits in the GUI persist automatically per remote (`<id>.override.json`) with a single-click "Reset to Defaults" option.
+- 🔄 **Runtime JSON Overrides & Friendly Aliases**: Custom friendly names and parameter edits in the GUI persist automatically per remote (`remotes/<id>.override.json`) with a single-click "Reset to Defaults" option.
+- ➕ **Built-in Remote Management**: Use the "+ Add Remote" button to directly launch interactive `rclone config` in a terminal.
 - 💾 **Drive Letter Detection (Windows)**: Automatically scans Windows for unused drive letters with `auto` (`*`) fallback.
 - 📊 **VFS Cache Monitoring**: Real-time calculation and display of on-disk cached data size.
 - 🧹 **Automatic Cleanup**: Clean cache and log directories automatically after unmount.
@@ -89,11 +90,9 @@ RcloneMountManager/
 ├── requirements.txt        # Python dependencies
 ├── RcloneMountManager.spec # PyInstaller build specification
 ├── icon.ico                # Application window & tray icon
-├── rclone.conf             # rclone configuration (local or system default)
+├── rclone.conf             # (Optional) Portable rclone config
 ├── remotes/
-│   ├── _sample.properties  # Template reference configuration
-│   ├── <id>.properties     # Per-remote configuration file
-│   └── <id>.override.json  # Runtime GUI overrides (auto-generated)
+│   └── <id>.override.json  # Runtime GUI overrides (per-remote)
 ├── cache/<id>/             # VFS cache directories per remote
 └── logs/
     ├── app.log             # Rotating application log (UTF-8, 2 MB × 6 files)
@@ -102,49 +101,30 @@ RcloneMountManager/
 
 ---
 
-## 🔧 Remote Configuration
+## 🔧 Remote Configuration & Overrides
 
-Create a `.properties` file inside the `remotes/` directory for each storage remote you want to manage.
+Remotes are read dynamically from your active **`rclone.conf`**.
 
-### Example Configuration: `remotes/myremote.properties`
-```ini
-[General]
-# Display name in the UI
-name = Google Drive Personal
+### Configuration Resolution
+The application locates `rclone.conf` using the following search order:
+1. `rclone.conf` placed in the application root directory (portable mode).
+2. Environment variable `RCLONE_CONFIG`.
+3. Standard OS default paths:
+   - **Windows**: `%APPDATA%\rclone\rclone.conf`
+   - **Linux / macOS**: `~/.config/rclone/rclone.conf`
 
-# Remote name as defined in rclone.conf (must end with :)
-remote_name = gdrive:
-
-# Mountpoint: drive letter (e.g., X:, Z:) or "auto" on Windows; absolute path on Linux
-mountpoint = auto
-
-# Volume name shown in File Explorer (Windows)
-volname = GoogleDrive
-
-[Rclone]
-# Path to rclone.conf (relative to app directory or absolute).
-# If omitted or "rclone.conf", uses local rclone.conf or system default.
-config_path = rclone.conf
-
-# Additional CLI flags
-extra_flags = --links
-
-[Defaults]
-# VFS cache mode: off, minimal, writes, full
-vfs-cache-mode = full
-
-# Maximum cache age
-vfs-cache-max-age = 30m
-
-# Directory cache expiration
-dir-cache-time = 1m
-
-# Sequential read ahead buffer
-vfs-read-ahead = 128M
-
-# Bandwidth limit ('off' for unmetered)
-bwlimit = off
+To add, edit, or remove remotes, simply run:
+```bash
+rclone config
 ```
+or click the **"+ Add Remote"** button in the sidebar footer.
+
+### Runtime Overrides (`remotes/<id>.override.json`)
+You do not need to write or maintain `.properties` files for each remote.
+- **Global Defaults**: Mount parameters start with high-performance defaults (`vfs-cache-mode = full`, `mountpoint = auto`, etc.).
+- **Friendly Name (Alias)**: Set a custom display name in the settings panel (*Friendly Name (Alias)*) to customize the label shown in the sidebar list and top workspace bar without renaming your remote in `rclone.conf`.
+- **Automatic Persistence**: When you change settings, drive letters, or friendly names, your configuration is saved automatically to `remotes/<id>.override.json`.
+- **Reset to Defaults**: Clicking **Reset to Defaults** reverts the fields to the built-in global defaults.
 
 ---
 
