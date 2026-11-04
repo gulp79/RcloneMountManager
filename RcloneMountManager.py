@@ -26,7 +26,7 @@ from PySide6.QtGui import (QIcon, QAction, QColor, QPalette, QFont, QPixmap, QPa
 
 # --- GLOBAL CONFIGURATION ---
 APP_NAME = "Rclone Mount Manager"
-VERSION = "1.0.5"
+VERSION = "1.2.0"
 
 def get_base_dir() -> Path:
     """
