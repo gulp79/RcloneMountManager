@@ -502,12 +502,36 @@ class RemoteController:
         return params
 
     def save_overrides(self, params: dict):
-        """Persist mount parameters as a JSON override file."""
-        OVERRIDES_DIR.mkdir(parents=True, exist_ok=True)
+        """Persist mount parameters as a JSON override file.
+
+        The file is written only when at least one value in the merged
+        ``runtime_params`` dict actually differs from the built-in
+        ``_DEFAULT_PARAMS``.  This prevents the creation of empty / redundant
+        override files for remotes that have never been customised.
+        """
         self.runtime_params.update(params)
+        if not self.has_non_default_params():
+            logger.info(
+                f"Skipping override save for {self.config_id}: all params match defaults"
+            )
+            return
+        OVERRIDES_DIR.mkdir(parents=True, exist_ok=True)
         with open(self.overrides_file, "w", encoding="utf-8") as f:
             json.dump(self.runtime_params, f, indent=4)
         logger.info(f"Saved overrides for {self.config_id}")
+
+    def has_non_default_params(self) -> bool:
+        """Return True if any runtime parameter differs from the global defaults.
+
+        Used to decide whether an override file should be written at all.
+        Parameters that are purely internal runtime state (e.g. 'clean_logs') and
+        are not meaningful to persist when equal to defaults are also checked.
+        """
+        for key, default_value in _DEFAULT_PARAMS.items():
+            current_value = self.runtime_params.get(key, default_value)
+            if current_value != default_value:
+                return True
+        return False
 
     def get_info(self) -> dict:
         """Return basic remote metadata used by the UI."""
@@ -1532,14 +1556,21 @@ class RemoteWidget(QWidget):
         logger.info(f"Reset settings to defaults for {self.current_controller.config_id}")
 
     def on_display_name_changed(self, text: str):
-        """Update live UI and persist custom friendly name to overrides when edited"""
+        """Update live UI and persist custom friendly name to overrides when edited.
+
+        The override file is written only if the entered name actually differs
+        from the default (empty string), avoiding spurious file creation when the
+        user opens a remote without changing anything.
+        """
         if not self.current_controller:
             return
         clean = text.strip()
         effective = clean if clean else self.current_controller.config_id
         self.lbl_name.setText(effective)
         self.current_controller.runtime_params["display_name"] = clean
-        self.current_controller.save_overrides({"display_name": clean})
+        # Only persist if the name is non-empty (i.e. different from default "")
+        if clean != _DEFAULT_PARAMS.get("display_name", ""):
+            self.current_controller.save_overrides({"display_name": clean})
         self.name_changed.emit(self.current_controller.config_id, effective)
 
     def on_mountpoint_changed(self, text):
@@ -1547,8 +1578,11 @@ class RemoteWidget(QWidget):
         self.btn_mount.setText(f"▶ MOUNT REMOTE ({letter})")
 
     def on_auto_mount_toggled(self, checked):
+        """Persist auto-mount preference, but only if it differs from the default (False)."""
         if self.current_controller:
-            self.current_controller.save_overrides({"auto_mount": checked})
+            self.current_controller.runtime_params["auto_mount"] = checked
+            if checked != _DEFAULT_PARAMS.get("auto_mount", False):
+                self.current_controller.save_overrides({"auto_mount": checked})
 
     def copy_log_to_clipboard(self):
         text = self.log_viewer.toPlainText()
@@ -2820,6 +2854,12 @@ if __name__ == "__main__":
     
     app.setApplicationName(APP_NAME)
     app.setOrganizationName("RcloneManager")
+    
+    # Set the application-level icon early so the OS window manager picks it up
+    # correctly on all platforms (Windows title bar, taskbar, Alt+Tab, etc.)
+    _early_icon_path = get_icon_path()
+    if _early_icon_path and _early_icon_path.exists():
+        app.setWindowIcon(QIcon(str(_early_icon_path)))
     
     window = MainWindow()
     window.show()
