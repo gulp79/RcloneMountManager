@@ -386,5 +386,21 @@ class TestRcloneMountManager(unittest.TestCase):
         finally:
             save_app_settings(orig_settings)
 
+    def test_app_icon_resolution_and_sizes(self):
+        """Verify load_app_icon provides a non-null QIcon with standard Windows sizes."""
+        from RcloneMountManager import load_app_icon, get_icon_path
+
+        icon_path = get_icon_path()
+        self.assertIsNotNone(icon_path)
+        self.assertTrue(icon_path.exists())
+
+        icon = load_app_icon()
+        self.assertFalse(icon.isNull())
+        sizes = [s.width() for s in icon.availableSizes()]
+        # Check standard small and big sizes needed for Windows title bar and taskbar
+        self.assertIn(16, sizes)
+        self.assertIn(32, sizes)
+        self.assertIn(256, sizes)
+
 if __name__ == "__main__":
     unittest.main()

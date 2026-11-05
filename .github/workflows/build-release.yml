@@ -72,6 +72,8 @@ jobs:
           pyinstaller --onefile --windowed
           --name "${{ env.APP_NAME }}"
           --icon="${{ env.ICON_FILE }}"
+          --add-data "${{ env.ICON_FILE }};."
+          --add-data "version.txt;."
           --hidden-import _version
           "${{ env.ENTRYPOINT }}"
 
@@ -80,6 +82,8 @@ jobs:
         run: >
           pyinstaller --onefile
           --name "${{ env.APP_NAME }}"
+          --add-data "${{ env.ICON_FILE }}:."
+          --add-data "version.txt:."
           --hidden-import _version
           "${{ env.ENTRYPOINT }}"
 
@@ -144,6 +148,8 @@ jobs:
           pyinstaller --onefile --windowed
           --name "${{ env.APP_NAME }}"
           --icon="${{ env.ICON_FILE }}"
+          --add-data "${{ env.ICON_FILE }};."
+          --add-data "version.txt;."
           --hidden-import _version
           "${{ env.ENTRYPOINT }}"
 
@@ -152,6 +158,8 @@ jobs:
         run: >
           pyinstaller --onefile
           --name "${{ env.APP_NAME }}"
+          --add-data "${{ env.ICON_FILE }}:."
+          --add-data "version.txt:."
           --hidden-import _version
           "${{ env.ENTRYPOINT }}"
 

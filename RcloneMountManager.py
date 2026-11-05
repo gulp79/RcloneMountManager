@@ -212,6 +212,12 @@ logger.info(f"BASE_DIR = {BASE_DIR}")
 logger.info(f"CONFIGS_DIR = {CONFIGS_DIR}")
 logger.info(f"RCLONE PATH = {get_rclone_path()}")
 
+# Embedded 48x48 PNG fallback icon (base85 encoded) ensuring the window icon is always
+# available even if icon.ico is omitted from PyInstaller data bundles or execution directories.
+FALLBACK_ICON_B85 = (
+    "iBL{Q4GJ0x0000DNk~Le0000m0000m2nGNE09OL}hX4Q&+(|@1RCwCWnrV<8S9OM;b8mNl%gksNNh52qWXlqZY`n-WsIbVw35AKP0s&?UgF}H692eM-gqR{M84rQ{Atc4VR04)#vqnw<Arz~%7#u@vY}vBG+N{yO&1f_;-_qUpo|7NnXG0QG@kWYU)qlFGyWjWRv%L457M|fXX6CkT#r@Cw!yB=6H)G@DqWsP+GZ``SPmrM-*<>Cwc_u#nv|lo^$^68qL;wd|b->oNrt=G9V6_#t(4uORaNO7YzQIM69k;HKgOB&@|33jU;bw$!(Hrg5f*tqtT+?ju##q|=B&(%PK%_%Tw0o7U`D*5W+*{?#Z-0Jv>q|w#(<LEK8N2|9z38WNuWvQ8zcZh$w%m}s4HhD%<^;S5&Hz=HxQeT0H8KY^%KHW@#rywxL+`gAb0-n|?GrE)L~M&~Np9M9*{4hG{j=CCa9RXMbT}uH)kIu^bU)w?GL87WWxgymjY3b><9kHtcdZY9;*|^DW$~$zNS=z@jM*cVxBqbA=1A{V%*_So%;8;PSwEp!P#)QZJF}Opn8ukA(?yg6YpE|>E%mg=SIQZZ#+*`$`Fj6N@A>M9<sXD=MkjC+n8Fh$Ax}17H;+oZ=)0$H&E3GL&73Knvy?0YtrGYBfCZ-~SlPdim4hu7R*hOzbUrXWopEsXIh-08rDxS2&~HuBJf~7vIoPu>t%Xw`fA_V^-o9y*`Ozm46Y^xU&HC@nysb(9C+y5@=^QCOMH>zB$$#Sfm3Ol4ygFy~^)MukUQ>E4(1TJfO2W)6(+|z^AA2t6$g|$dU^OGjTcp92L$%(tmd;=O);BNx`ja6cPc(OPGj`?u&E@;|+e4bu<D?Xlip2RA?%4Ynyyy`wIeQt)LP1|yFhFDhN}n0MD0PL3Glqi_e=*6|?!A!7RUf7=b0lS<)##-{IC1WC2A+G>RsA!aaQMGn$vqMLmv6)&Vuudq@3f?+j~LYO5{nd@{y2-)Pf}mB0?SJhi+HCfAWrZiBxY1ashSbXNZ-m8y#CS$dDh{7AjuPY%F?ApD-KXyGV_Zg*NceVeDhZSG<U#cWD{=UG>#+0%Qx;{aOmXVE{WM9XD#pxq?oy#h08z2g5kwr!gFdR%P3gtjf<SJ#0pX%NJ?l&(jw9qB59+*spHtgC-~0M_aFl=Br9jN$Go^Wzh~X~)eFx5<b<+uBd}Fvd|aPg7TRQ<QHc|yL?8;#`n{7ICFxrn^Z6(~@v+RwdcI42sD`OS90WC%X3DFr#bB#Jj1f#AaTHmNrc`i6AOVU}Icr&k3#R^!-HnUrb#0dwr4Be*d-`B|y=)u5i*4f_Q;v-}fX5?}JZ^Ozm1s8RF8lHOHnbZ0hcOSAOrH+Vi?L;bI;;ncd#Eoyj8Mmj1QU9E<kjUF2AeI~&f|QBVOSY(`5g7SV$PvOgb3=YtQy+Ssl&UeW=p7qhSX!Q!M$g`bo|YqyMxr<EouEnGJf?g02|rlWnwfwK7nq560r4KW?#GZ8|k~twq1(PaGF8c!eW7VL!$$?hpd`o^x`bgRJb^{7;H6ZlHe6E15+@;@JKsHB*B8<6igHP>T@h+A65)f3k}JNHubW#wnx&nF4(n=)|vd|wO{yVySMj4^0ATojWGw~CSbn`;x71)+OEo)&9nb9b*y(H%qExW{Jh%ibg<@hw3wSD4s)Jpo;01oIYAXHcGSbl`6d<(iHfMAvBXp{?e4rPv<fH%2|%f&J~HS|vY=?v7n=0OHd?lIwrGSiMKc7`N?nuD>U8^ON3Ol?uZ3}iF)=!oJNZ?0we;g(IsMJj`d-fbOmN<ubK<1Z>jV!)z~u@ALJ2N&n1i5-iBS|0p+ss9jRsBt-^~;eRYM%ac7!H)FIWJ~<I6TW*Fdy|M#YJ9bzgUw(JXVDiR~zwRTfD4;mK>iu~u&R<3G38obPP{O_;#RxWuoVJN3DOp_kkIbm1JCx(cERVb{-SANx7@ePs0+3?t@|$^~F&_oBhTc|s^KF)%|AoC(e~Fu<$^s)#tO0Lg)hV8L+IXq0#I(2+Yy#1Io~wuiJF=IljlId@>SL?tOz>_lrm4A{_hd*1l%lXA;d@3WCjUH~rq;_+9X3B$L=#+lN)n37b{<~+?^U!?5$CAwmmfuU0j4IUzrAp$<FlB5~p9L@>TjV7P5qx^oK(H2KmZJ_<n1r5l|9zxNJIHPr>fMY3X)q@(QMr;-2tq7$dqO=~aFul()ndg+*IxbmpC25*cglMK&tY*E54rUuxeP-hw$=J@F*%xn@n^oH8G&;ni^YhFf`V@L;PPY6qqSQ&sUy@~WlrF=Gfq|)^7Kkc@Qt9YsBdtu+Uh*bRa2+Cn#r~62j&CM1fT<ycVcsxRBr48Qs#yYJNMcm#y(}84v&NU~JH3ks_BUC#>J2zjDb-0D6XvJdA2hR#?qBa*^a``u^Jq8B%)G^n#;I=+FEP@UYrz~Sm>Fgfhhe6eDG@`vL`<!d^V4aX!*ArMzKvMqggkOA{R`T|ufh8%93BaRmWCAqrGsD{>m#5brYJ%X$LgVBo?AP_!Q<PB(o01AnIbnW(-+_WmLI>swdUn@W~m97NQGkl0Aa;p{Gw%O84%}5oM2`|ji^S{3^nUy$zVtXQ;(A~=<pjjW;c*YlTftKkmDuiSo&8K!>_^18MO4cQaVJUbjf$J83<+|W~2yFm8AoNEVKtW(>M+EpwVk4HJ8tpqb>%ygiwl@Iu|^p+lMTvAnH1*T(tulLq&*Ys3|6jMa6(<g68vt+OwEWuSc{=EDCP?^fuo0g`ePJgwW<x?M6cFJgjIy1Pcm5A=0t_qa;jF>*y)x1aS#x^^}kwpwv21ofM@}ws?`#Qiq9U2W%P8`YfbrM<t1LfSaKvU3U?P4h=$#hDL}67Te5Mt{~Ss6&Lv1%@4A3@deyfIhPM?zMonW$YT%9<RwrxiG^Zi#G-Y`M6gnjD2Umw2{pkGYKfyJr^%zIG$-w76a_1i7))Fz*`XStp5VN6DyVc{BZg=PtkFr8xK1hbY8Xnegod0=HBojPY;YH6v2^WOP%2v=Imn(94OXq}r>)D#N^nsT73jJr(K@l_I`PzrHS5+}!DD3JQD}y<3T6p0#>7b|=9~(Ih>wuE0Zh6s(+yJ0i0w`xRW;ON$9<xrs#r8ELevCjky-U514B3!oO5IYi<k`w-XhUFRz4~vI?oY7tkcHOV3e&#&EGMs08Rw;izrDt@30Edl3C}<uv;WG5F<vi=5mniS3YSG6{Fqo#M~a+RyD;;2tZUN2IH~Qhd7)i9RenZB+#{}D#S>~`r3_yuHOp~+D1NOI0vYJxlZb(%ABmBG^4acqg1RAzuQ?}Y(WvC7*gV=7Lpa`qAth8fhj^sVKth^1ebz_PT-n#GKNO&ex&P+3cfVb0<u!b)O9qSDN%)}f=0ti1?_;3WhC*&%;6GicT=^3nj_T~jpRa3#?_bxa`jT0mwAofbMf@?TeUgY6ipne=9)@vay>~lh-n+Kj<dV|I<rR?P#iDtHP?+??O4^iuBBa<Q%H)=m6k#!2o8BHF%am8J{80~8ii^l;neYhncYH9CBw9%H7j8rUs=q9@zt~g1oej1WTt4(oNAw(aEEW%xLb<Wmt58_6c+IjIas0Z;mfI3&!Q7?;Jl(shdFk)knfwrWsxW)7E6c$ExU1nff|*<$byiTkQ5Q3c9g3c#1hp2Vt9$9Nnmnvo?Sm~u}~^VEJ;F(UY&)$)!b$8;K1B4YDT+EVkSc}R~DbY@y=HrNf<Myd$xbTsExR+wouDvbUt|Y*6E#lDRK2AVc`)9JB}`KglZqBb|0j7YL=dJ5?p`BTCSqt5~NEY%Z+Moh$*pcm_jhcxr}OUG1Y1x8jYFL1&1fww2$_&cBq#H6;D>FP}Y`k&|SuZ^DpGgT!qZH$<@WW^du+pQ-`PGsSk~fnM-(RLJmxf9$k9v-LFrFR(;3$iX#@$C8gKnf*d`EwD%mcdV#o3nCgIGjRM^T){}sTWVV4@m7uf{byP|r%N0Q=3lMX7X>p`^0YBgU8LB;k1|`o8f>BxOIq3k4I7?{F_RwfKQq4)yoKgvyRFjsK#R)xe^*isna@t;QE@5IcGGhMd=jHon{mD<S&K9lwa#HEbG@lPRbGWu>Lqul5nRHwqfuxstO$amKyfAwvA#b%&6laj-kffciL?}9v!->+I_Z)hpk7}Rm2ssC?s>D|8lq~DEBWaO%HFJpu6|1=gNgn4K$BX@Mc-PNfcE_fXO<u+&c8-)25*gc)92<YZ#NyX{`*3ym*`G)kEV;y-gQA7=WyD1@HAIA9o~)|L3s(h_)FIB%numpbjt~^DN<9~<iQ%MEL!2t1RC*S|c^e_Cb>u@VVCo?VL4tVgR$&42f~7w5buSK16-Vzml0SUi-{14PpKls5KRVHAeEsT7JpR(ai20KfawqVD<yUXJR_Y7iB$evLKI^OED@fuHJOaGuiWz&^>L~31iR)B{X3Lmw2dasuS}N7tb#r?pO@zFm^sRx#H+B2%fX{@fJFvZ<?Mu{mG=%{{OPb|ud#0GWdpaKZ(ue-@Rkr};rjbpLfq(qI(3m-XZ45O0;(uJt;?);8S6Sv0DsAg+uU%qGKKGVY<EBxgB2GlA^^B~Nk|vQKe(wa^f7DN3Ulj+;&djjkWeu*layfZnl<i2nT>xfDl9*U@-+I>r<MT&#N;14fS}kiFJ39Z!&Rh4qfA6DE$51!Ue;-lFZ)|vtm}9e#-GuzV*6p|7_my+cJLmN?Gt;FL((l}MFGmi}U}8)iSkAKHb)C~15JSn)6Zf;^+-b_7ta{cEulS?&#9-y%;9$D{k^P_Du<_#SAGf`R$;1e5bV9VNEuK(&-FS4H#>N~EoiChNEC822yHB_jZo27HZ~DkbZs=LDa``J;jWc2W^H(Pi{%Df+Ooj8#TScwx7A;ev!SdQUO#VdZTUv72HERJv|G+?c@W6pvHf+53`p;f>cgj6*q<78$&L2K$4^BL2f+!QjXLLei-HD2b`0ZQo+q`1M*{^Je*-*@;$+nM18YiLJ=P{K|VUs{USJJ;ixctT{X^)oGtS>!y=+G@MdCBwMY-SEHc?uI6_f!aUny)vDnZ>_+=bw%oK6>Pvm1IF8wN}`8gJb!kD%Dv}e-sAP(L0-Q_VOw(d25QL?NCX3(*u)}UwOLVd8~2s6xOzF+YE4D{pweB)vD3WBd>k&MGFU)tSkInSbni{<<1H+BV?t}zZBNp5V2Yr`szc;;X?<$wqfJN*F0VDPm92>li0fT7F~7DRkw|dTyf#TfhFr&G8YzKg3}#U>b;It?`WgdJS?aUB?k{3`uc{A7r&wFhEEIpGdG<d8*?2%m!{jdKk)6nyQl2loqLL%TMyaJZHMgMox96@d!}srwjH+uVrFiv+j0J#S&xz!85zm8ZQJqhdv{IQJ@@X)e}3QY{E@v=wtef4&44#EXV1`-{<lIxL|C)t%F348@BPmHeWz`5|BP+lw&S)gc=?^P{Ns@TShHqL<%i$D=e<Ap-raxmXubKJ2mkBiso%zb8UN2eu$XMwV#$^*Taw>E=owl61w)n!^fP+TVgLXD07*qoM6N<$f&"
+)
+
 def get_icon_path() -> Path | None:
     """Resolve the application icon (.ico) file path.
 
@@ -234,28 +240,73 @@ def get_icon_path() -> Path | None:
     return None
 
 
+def _extract_icon_from_exe(exe_path: str) -> QIcon:
+    """Extract embedded application icon from Windows PE executable resources.
+
+    When built with PyInstaller (--icon=icon.ico), the icon is embedded directly
+    in the .exe file as an RT_ICON resource. This helper extracts both the large
+    and small icon handles via Win32 Shell API and converts them to a QIcon.
+    """
+    if platform.system() != "Windows":
+        return QIcon()
+    try:
+        import ctypes
+        from ctypes import wintypes
+        shell32 = ctypes.windll.shell32
+        user32 = ctypes.windll.user32
+        h_large = wintypes.HICON()
+        h_small = wintypes.HICON()
+        res = shell32.ExtractIconExW(str(exe_path), 0, ctypes.byref(h_large), ctypes.byref(h_small), 1)
+        if res <= 0:
+            return QIcon()
+        icon = QIcon()
+        if h_large.value:
+            img_l = QImage.fromHICON(h_large.value)
+            if not img_l.isNull():
+                icon.addPixmap(QPixmap.fromImage(img_l))
+            user32.DestroyIcon(h_large)
+        if h_small.value:
+            img_s = QImage.fromHICON(h_small.value)
+            if not img_s.isNull():
+                icon.addPixmap(QPixmap.fromImage(img_s))
+            user32.DestroyIcon(h_small)
+        return icon
+    except Exception as e:
+        logger.debug(f"Failed to extract icon from PE resource: {e}")
+        return QIcon()
+
+
 def load_app_icon() -> QIcon:
     """Return the best available QIcon for this application.
 
-    Tries the .ico file first (via :func:`get_icon_path`).  When running as a
-    PyInstaller frozen executable on Windows the icon is also embedded as a PE
-    resource in the exe itself, so as a last-resort fallback we ask Qt to load
-    it directly from ``sys.executable`` — this guarantees the title bar and
-    taskbar always show the correct icon even if the .ico file is somehow
-    missing from *_MEIPASS*.
+    Resolution hierarchy (100% resilient):
+    1. Disk icon: icon.ico in sys._MEIPASS (PyInstaller bundle) or BASE_DIR.
+    2. PE resource: extract native icon from sys.executable on Windows.
+    3. Embedded fallback: decode in-memory 48x48 PNG bytes (FALLBACK_ICON_B85).
     """
+    # 1. Check disk file
     icon_path = get_icon_path()
     if icon_path:
         icon = QIcon(str(icon_path))
         if not icon.isNull():
             return icon
 
-    # Fallback: read the PE-embedded icon from the exe (Windows frozen only)
+    # 2. Check PE executable resource (Windows frozen exe)
     if getattr(sys, "frozen", False) and platform.system() == "Windows":
-        icon = QIcon(sys.executable)
+        icon = _extract_icon_from_exe(sys.executable)
         if not icon.isNull():
-            logger.info("Loaded icon from PE resource of the executable (fallback)")
+            logger.info("Loaded application icon from PE executable resource")
             return icon
+
+    # 3. In-memory embedded fallback
+    try:
+        import base64
+        pix = QPixmap()
+        if pix.loadFromData(base64.b85decode(FALLBACK_ICON_B85), "PNG"):
+            logger.info("Loaded application icon from embedded memory fallback")
+            return QIcon(pix)
+    except Exception as e:
+        logger.warning(f"Failed to load embedded fallback icon: {e}")
 
     logger.warning("Application icon not found; using Qt default")
     return QIcon()
@@ -2207,12 +2258,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{APP_NAME} v{VERSION}")
         self.resize(1240, 780)
         
-        icon_path = get_icon_path()
-        app_icon = load_app_icon()
-        if not app_icon.isNull():
-            self.setWindowIcon(app_icon)
-            QApplication.instance().setWindowIcon(app_icon)
-            logger.info(f"Loaded icon from: {icon_path if icon_path else 'PE resource fallback'}")
+        self.app_icon = load_app_icon()
+        if not self.app_icon.isNull():
+            self.setWindowIcon(self.app_icon)
+            QApplication.instance().setWindowIcon(self.app_icon)
+            self._apply_native_window_icon()
+            logger.info(f"Loaded icon from: {get_icon_path() or 'fallback'}")
         
         self.controllers = {}
         self._setup_tray()
@@ -2783,6 +2834,37 @@ class MainWindow(QMainWindow):
         if self.details_panel.current_controller:
             self.details_panel.refresh_state()
 
+    def _apply_native_window_icon(self):
+        """Explicitly send WM_SETICON to native Windows HWND to guarantee title bar rendering."""
+        if platform.system() != "Windows" or not hasattr(self, "app_icon") or self.app_icon.isNull():
+            return
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            hwnd = int(self.winId())
+            if not hwnd:
+                return
+            WM_SETICON = 0x0080
+            ICON_SMALL = 0
+            ICON_BIG = 1
+            
+            # Extract small icon (16x16) for title bar and big icon (32x32) for taskbar / Alt+Tab
+            img_small = self.app_icon.pixmap(16, 16).toImage()
+            img_big = self.app_icon.pixmap(32, 32).toImage()
+            h_small = img_small.toHICON()
+            h_big = img_big.toHICON()
+            if h_small:
+                user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, h_small)
+            if h_big:
+                user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, h_big)
+        except Exception as e:
+            logger.debug(f"Could not apply native WM_SETICON: {e}")
+
+    def showEvent(self, event):
+        """Ensure native window icon is applied when the window is first mapped."""
+        super().showEvent(event)
+        self._apply_native_window_icon()
+
     def closeEvent(self, event):
         """Handle application close with prompt if mounts are active"""
         running_mounts = [name for name, ctl in self.controllers.items() if ctl.is_running]
@@ -2885,6 +2967,14 @@ def apply_modern_dark_theme(app):
     """)
 
 if __name__ == "__main__":
+    # Ensure Windows taskbar and title bar identify this process uniquely
+    if platform.system() == "Windows":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("RcloneManager.RcloneMountManager")
+        except Exception:
+            pass
+
     app = QApplication(sys.argv)
     apply_modern_dark_theme(app)
     
