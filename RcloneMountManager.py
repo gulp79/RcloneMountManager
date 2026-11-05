@@ -212,17 +212,53 @@ logger.info(f"BASE_DIR = {BASE_DIR}")
 logger.info(f"CONFIGS_DIR = {CONFIGS_DIR}")
 logger.info(f"RCLONE PATH = {get_rclone_path()}")
 
-def get_icon_path():
+def get_icon_path() -> Path | None:
+    """Resolve the application icon (.ico) file path.
+
+    Search order:
+    1. ``sys._MEIPASS`` — PyInstaller onefile temp extraction folder (frozen).
+    2. ``BASE_DIR``      — Development mode or PyInstaller onedir.
+
+    Returns the first ``Path`` that exists, or ``None`` if not found.
     """
-    Resolve application icon path (compatible with PyInstaller onefile temp folder).
+    candidates = []
+    # 1. PyInstaller onefile: bundled files are extracted to _MEIPASS at runtime
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        candidates.append(Path(sys._MEIPASS) / "icon.ico")
+    # 2. Dev / onedir: icon lives next to the script / exe
+    candidates.append(BASE_DIR / "icon.ico")
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def load_app_icon() -> QIcon:
+    """Return the best available QIcon for this application.
+
+    Tries the .ico file first (via :func:`get_icon_path`).  When running as a
+    PyInstaller frozen executable on Windows the icon is also embedded as a PE
+    resource in the exe itself, so as a last-resort fallback we ask Qt to load
+    it directly from ``sys.executable`` — this guarantees the title bar and
+    taskbar always show the correct icon even if the .ico file is somehow
+    missing from *_MEIPASS*.
     """
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        base_path = Path(sys._MEIPASS)
-    else:
-        base_path = BASE_DIR
-    
-    icon_path = base_path / "icon.ico"
-    return icon_path if icon_path.exists() else None
+    icon_path = get_icon_path()
+    if icon_path:
+        icon = QIcon(str(icon_path))
+        if not icon.isNull():
+            return icon
+
+    # Fallback: read the PE-embedded icon from the exe (Windows frozen only)
+    if getattr(sys, "frozen", False) and platform.system() == "Windows":
+        icon = QIcon(sys.executable)
+        if not icon.isNull():
+            logger.info("Loaded icon from PE resource of the executable (fallback)")
+            return icon
+
+    logger.warning("Application icon not found; using Qt default")
+    return QIcon()
 
 def get_dir_size_str(folder_path: Path) -> str:
     """Calculate formatted size of a directory on disk"""
@@ -2172,11 +2208,11 @@ class MainWindow(QMainWindow):
         self.resize(1240, 780)
         
         icon_path = get_icon_path()
-        if icon_path and icon_path.exists():
-            app_icon = QIcon(str(icon_path))
+        app_icon = load_app_icon()
+        if not app_icon.isNull():
             self.setWindowIcon(app_icon)
             QApplication.instance().setWindowIcon(app_icon)
-            logger.info(f"Loaded icon from: {icon_path}")
+            logger.info(f"Loaded icon from: {icon_path if icon_path else 'PE resource fallback'}")
         
         self.controllers = {}
         self._setup_tray()
@@ -2513,9 +2549,9 @@ class MainWindow(QMainWindow):
             return
         
         self.tray = QSystemTrayIcon(self)
-        icon_path = get_icon_path()
-        if icon_path and icon_path.exists():
-            self.tray.setIcon(QIcon(str(icon_path)))
+        app_icon = load_app_icon()
+        if not app_icon.isNull():
+            self.tray.setIcon(app_icon)
         else:
             from PySide6.QtWidgets import QStyle
             self.tray.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon))
@@ -2856,10 +2892,12 @@ if __name__ == "__main__":
     app.setOrganizationName("RcloneManager")
     
     # Set the application-level icon early so the OS window manager picks it up
-    # correctly on all platforms (Windows title bar, taskbar, Alt+Tab, etc.)
-    _early_icon_path = get_icon_path()
-    if _early_icon_path and _early_icon_path.exists():
-        app.setWindowIcon(QIcon(str(_early_icon_path)))
+    # correctly on all platforms (Windows title bar, taskbar, Alt+Tab, etc.).
+    # load_app_icon() handles both normal runs (BASE_DIR/icon.ico) and PyInstaller
+    # onefile frozen runs (sys._MEIPASS/icon.ico or PE resource fallback).
+    _early_icon = load_app_icon()
+    if not _early_icon.isNull():
+        app.setWindowIcon(_early_icon)
     
     window = MainWindow()
     window.show()
