@@ -68,3 +68,6 @@ configs/settings.json
 configs/config.json
 configs/rclone.conf
 !configs/.gitkeep
+_version.py
+_version.py
+version.txt

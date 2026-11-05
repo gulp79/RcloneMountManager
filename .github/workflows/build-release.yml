@@ -11,6 +11,11 @@ on:
         options:
           - windows
           - ubuntu
+      version:
+        description: "Versione specifica (es. 1.2.0 o lascia vuoto per rilevare da git)"
+        required: false
+        default: ""
+        type: string
 
   push:
     tags:
@@ -37,6 +42,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup Python ${{ env.PY_VERSION }}
         uses: actions/setup-python@v7
@@ -54,12 +61,18 @@ jobs:
           pip install pyinstaller
         shell: bash
 
+      - name: Generate dynamic version
+        run: |
+          python -c "import os, subprocess; tag = os.environ.get('APP_VERSION') or '${{ inputs.version }}' if '${{ inputs.version }}' else ''; tag = tag or subprocess.run(['git', 'describe', '--tags', '--always'], capture_output=True, text=True).stdout.strip() or '1.2.0'; tag = tag.lstrip('v'); open('_version.py', 'w', encoding='utf-8').write(f'__version__ = \"{tag}\"\n'); open('version.txt', 'w', encoding='utf-8').write(f'{tag}\n'); print(f'Version set to {tag}')"
+        shell: bash
+
       - name: Build with PyInstaller (Windows)
         if: ${{ startsWith(runner.os,'Windows') }}
         run: >
           pyinstaller --onefile --windowed
           --name "${{ env.APP_NAME }}"
           --icon="${{ env.ICON_FILE }}"
+          --hidden-import _version
           "${{ env.ENTRYPOINT }}"
 
       - name: Build with PyInstaller (Linux)
@@ -67,6 +80,7 @@ jobs:
         run: >
           pyinstaller --onefile
           --name "${{ env.APP_NAME }}"
+          --hidden-import _version
           "${{ env.ENTRYPOINT }}"
 
       - name: Collect artifact
@@ -100,6 +114,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup Python ${{ env.PY_VERSION }}
         uses: actions/setup-python@v7
@@ -117,12 +133,18 @@ jobs:
           pip install pyinstaller
         shell: bash
 
+      - name: Generate dynamic version from tag
+        run: |
+          python -c "tag = '${{ github.ref_name }}'.lstrip('v') or '1.2.0'; open('_version.py', 'w', encoding='utf-8').write(f'__version__ = \"{tag}\"\n'); open('version.txt', 'w', encoding='utf-8').write(f'{tag}\n'); print(f'Version set to {tag}')"
+        shell: bash
+
       - name: Build with PyInstaller (Windows)
         if: ${{ startsWith(matrix.os,'windows') }}
         run: >
           pyinstaller --onefile --windowed
           --name "${{ env.APP_NAME }}"
           --icon="${{ env.ICON_FILE }}"
+          --hidden-import _version
           "${{ env.ENTRYPOINT }}"
 
       - name: Build with PyInstaller (Linux)
@@ -130,6 +152,7 @@ jobs:
         run: >
           pyinstaller --onefile
           --name "${{ env.APP_NAME }}"
+          --hidden-import _version
           "${{ env.ENTRYPOINT }}"
 
       - name: Collect artifact
