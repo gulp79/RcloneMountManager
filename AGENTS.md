@@ -20,7 +20,8 @@ RcloneMountManager/
 ├── RcloneMountManager.spec # PyInstaller build spec
 ├── icon.ico
 ├── rclone.conf             # (Optional) Portable rclone config
-├── remotes/
+├── configs/
+│   ├── settings.json       # App configuration (custom rclone/rclone.conf paths)
 │   └── <id>.override.json  # Runtime UI overrides saved on mount
 ├── cache/<id>/             # VFS cache per remote
 └── logs/
@@ -38,6 +39,7 @@ RcloneMountManager/
 |---|---|
 | `RemoteController` | Owns a `QProcess` running `rclone mount`, handles start/stop/cleanup |
 | `MainWindow` | Top-level window; builds sidebar + right panel |
+| `SettingsDialog` | Configuration dialog to customize rclone executable and rclone.conf paths |
 | `RemoteWidget` | Right-hand details panel: status, buttons, collapsible settings, live log |
 | `RemoteListItem` | Custom sidebar row widget (compact, 32 px tall) |
 | `StatusIndicator` | Coloured dot label; `size=` param, default 10 px |
@@ -67,8 +69,9 @@ _cleanup()     →  deletes cache/logs only if path.is_relative_to(BASE_DIR)  �
 ```
 
 - **Remote discovery**: `refresh_remotes()` discovers remotes directly from `rclone.conf` sections. Legacy `.properties` files are deprecated and ignored.
-- **Config resolution order for `--config`**: `BASE_DIR/rclone.conf` (portable) → `$RCLONE_CONFIG` → OS default path (`%APPDATA%/rclone/rclone.conf` or `~/.config/rclone/rclone.conf`).
-- **Overrides**: Mount options use `_DEFAULT_PARAMS` as base defaults; customized parameters and customizable friendly aliases (`display_name`) are saved to `remotes/<id>.override.json`.
+- **Config resolution order for `--config`**: Custom path in `configs/settings.json` (if configured) → `CONFIGS_DIR/rclone.conf` → `BASE_DIR/rclone.conf` (portable) → `$RCLONE_CONFIG` → OS default path (`%APPDATA%/rclone/rclone.conf` or `~/.config/rclone/rclone.conf`).
+- **Executable resolution order**: Custom path in `configs/settings.json` (if configured) → `BASE_DIR/rclone.exe` (portable) → system PATH (`shutil.which("rclone")`).
+- **Overrides**: Mount options use `_DEFAULT_PARAMS` as base defaults; customized parameters and customizable friendly aliases (`display_name`) are saved to `configs/<id>.override.json` (with backward compatibility fallback to `remotes/<id>.override.json`).
 - **RemoteController constructor**: `RemoteController(remote_id, remote_type="", conf_path=None)`.
 - **RemoteController info**: `get_info()["name"]` returns `display_name` if present, falling back to `remote_id`.
 - **Mountpoint `auto` on Windows**: passes `*` as the mountpoint argument (auto-assign drive letter).

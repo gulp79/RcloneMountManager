@@ -15,14 +15,26 @@ class TestRcloneMountManager(unittest.TestCase):
         if cls.app is None:
             cls.app = QApplication(["-platform", "offscreen"])
 
+    def setUp(self):
+        # Clean any test override or config files
+        for name in ("test_remote", "test_r1", "test_r2"):
+            for d in ("configs", "remotes"):
+                ov = Path(d) / f"{name}.override.json"
+                if ov.exists():
+                    ov.unlink()
+        for p in ("test_rclone.conf",):
+            if Path(p).exists():
+                Path(p).unlink()
+
     def test_imports(self):
         """Verify all required classes can be imported from RcloneMountManager"""
-        from RcloneMountManager import MainWindow, RemoteController, RemoteListItem, RemoteWidget, StatusIndicator
+        from RcloneMountManager import MainWindow, RemoteController, RemoteListItem, RemoteWidget, StatusIndicator, SettingsDialog
         self.assertIsNotNone(MainWindow)
         self.assertIsNotNone(RemoteController)
         self.assertIsNotNone(RemoteListItem)
         self.assertIsNotNone(RemoteWidget)
         self.assertIsNotNone(StatusIndicator)
+        self.assertIsNotNone(SettingsDialog)
 
     def test_remote_controller_initialization(self):
         """Verify RemoteController initialises correctly from a rclone.conf section"""
@@ -64,9 +76,10 @@ class TestRcloneMountManager(unittest.TestCase):
             if conf_file.exists():
                 conf_file.unlink()
             # Remove any override file that may have been created
-            override = Path("remotes") / "test_remote.override.json"
-            if override.exists():
-                override.unlink()
+            for d in ("configs", "remotes"):
+                override = Path(d) / "test_remote.override.json"
+                if override.exists():
+                    override.unlink()
 
     def test_mainwindow_layout_and_elements(self):
         """Verify MainWindow layout structure and scrollbar components exist and are properly configured"""
@@ -296,9 +309,82 @@ class TestRcloneMountManager(unittest.TestCase):
         finally:
             window.close()
             for r_id in ("test_r1", "test_r2"):
-                ov = Path("remotes") / f"{r_id}.override.json"
-                if ov.exists():
-                    ov.unlink()
+                for d in ("configs", "remotes"):
+                    ov = Path(d) / f"{r_id}.override.json"
+                    if ov.exists():
+                        ov.unlink()
+
+    def test_configs_directory_and_settings(self):
+        """Verify CONFIGS_DIR is used for overrides and settings persistence works"""
+        from RcloneMountManager import (
+            CONFIGS_DIR, APP_SETTINGS_FILE, load_app_settings, save_app_settings,
+            get_rclone_path, resolve_rclone_conf, get_default_rclone_path, get_default_rclone_conf
+        )
+
+        self.assertTrue(CONFIGS_DIR.exists())
+        self.assertEqual(CONFIGS_DIR.name, "configs")
+
+        # Test settings save and load
+        orig_settings = load_app_settings()
+        try:
+            save_app_settings({"rclone_path": "C:\\custom\\rclone.exe", "rclone_conf_path": "C:\\custom\\rclone.conf"})
+            loaded = load_app_settings()
+            self.assertEqual(loaded["rclone_path"], "C:\\custom\\rclone.exe")
+            self.assertEqual(loaded["rclone_conf_path"], "C:\\custom\\rclone.conf")
+
+            # Non-existent custom path should fall back to default
+            default_path, _ = get_default_rclone_path()
+            self.assertEqual(get_rclone_path(), default_path)
+
+            default_conf = get_default_rclone_conf()
+            self.assertEqual(resolve_rclone_conf(), default_conf)
+        finally:
+            # Restore original settings
+            save_app_settings(orig_settings)
+
+    def test_settings_dialog_ui_and_actions(self):
+        """Verify SettingsDialog components, defaults reset, and path updates"""
+        from RcloneMountManager import SettingsDialog, load_app_settings, save_app_settings, MainWindow
+
+        orig_settings = load_app_settings()
+        try:
+            # Initial state
+            save_app_settings({"rclone_path": "", "rclone_conf_path": ""})
+            dialog = SettingsDialog()
+
+            self.assertTrue(hasattr(dialog, "edit_rclone_path"))
+            self.assertTrue(hasattr(dialog, "edit_rclone_conf"))
+            self.assertTrue(hasattr(dialog, "btn_reset"))
+            self.assertTrue(hasattr(dialog, "btn_save"))
+            self.assertTrue(hasattr(dialog, "lbl_exe_status"))
+            self.assertTrue(hasattr(dialog, "lbl_conf_status"))
+
+            # Set values in dialog
+            dialog.edit_rclone_path.setText("D:\\tools\\rclone.exe")
+            dialog.edit_rclone_conf.setText("D:\\tools\\rclone.conf")
+            self.assertIn("rclone.exe", dialog.edit_rclone_path.text())
+
+            # Test reset button
+            dialog.btn_reset.click()
+            self.assertEqual(dialog.edit_rclone_path.text(), "")
+            self.assertEqual(dialog.edit_rclone_conf.text(), "")
+
+            # Test save action
+            dialog.edit_rclone_path.setText("C:\\my_rclone.exe")
+            dialog._save_and_close()
+            saved = load_app_settings()
+            self.assertEqual(saved["rclone_path"], "C:\\my_rclone.exe")
+            dialog.close()
+
+            # Test MainWindow settings button & alias
+            window = MainWindow()
+            self.assertTrue(hasattr(window, "btn_open_config"))
+            self.assertTrue(hasattr(window, "btn_settings"))
+            self.assertEqual(window.btn_open_config, window.btn_settings)
+            self.assertTrue(hasattr(window, "lbl_conf_status"))
+            window.close()
+        finally:
+            save_app_settings(orig_settings)
 
 if __name__ == "__main__":
     unittest.main()

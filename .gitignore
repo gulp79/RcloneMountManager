@@ -63,3 +63,8 @@ logs/
 remotes/*.override.json
 remotes/*.properties
 !remotes/.gitkeep
+configs/*.override.json
+configs/settings.json
+configs/config.json
+configs/rclone.conf
+!configs/.gitkeep

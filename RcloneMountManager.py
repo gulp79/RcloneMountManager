@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                                QPushButton, QGroupBox, QComboBox, QLineEdit, 
                                QPlainTextEdit, QSplitter, QMessageBox, QCheckBox, 
                                QFormLayout, QFrame, QStyleFactory, QScrollArea,
-                               QFileDialog, QSystemTrayIcon, QMenu, QStatusBar)
+                               QFileDialog, QSystemTrayIcon, QMenu, QStatusBar, QDialog)
 from PySide6.QtCore import Qt, QProcess, QTimer, Slot, Signal, QSize, QPropertyAnimation, QEasingCurve, QPoint, QEvent
 from PySide6.QtGui import (QIcon, QAction, QColor, QPalette, QFont, QPixmap, QPainter, 
                            QLinearGradient, QKeySequence, QShortcut, QSyntaxHighlighter, 
@@ -40,7 +40,8 @@ def get_base_dir() -> Path:
 
 BASE_DIR = get_base_dir()
 
-REMOTES_DIR = BASE_DIR / "remotes"
+CONFIGS_DIR = BASE_DIR / "configs"
+REMOTES_DIR = CONFIGS_DIR  # Alias for backward compatibility
 CACHE_DIR   = BASE_DIR / "cache"
 LOGS_DIR    = BASE_DIR / "logs"
 
@@ -60,21 +61,97 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Ensure required directories exist
-for d in [REMOTES_DIR, CACHE_DIR, LOGS_DIR]:
+for d in [CONFIGS_DIR, CACHE_DIR, LOGS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
+# Migrate legacy remotes/ directory overrides if found
+LEGACY_REMOTES_DIR = BASE_DIR / "remotes"
+if LEGACY_REMOTES_DIR.exists() and LEGACY_REMOTES_DIR.is_dir():
+    try:
+        for old_file in LEGACY_REMOTES_DIR.glob("*.override.json"):
+            target_file = CONFIGS_DIR / old_file.name
+            if not target_file.exists():
+                shutil.copy2(old_file, target_file)
+                logger.info(f"Migrated override {old_file.name} to {CONFIGS_DIR}")
+    except Exception as e:
+        logger.warning(f"Error during legacy remotes migration: {e}")
+
+APP_SETTINGS_FILE = CONFIGS_DIR / "settings.json"
+OVERRIDES_DIR = CONFIGS_DIR
+
+
+# --- SETTINGS MANAGEMENT ---
+
+def load_app_settings() -> dict:
+    """Load application settings from configs/settings.json"""
+    default_settings = {
+        "rclone_path": "",
+        "rclone_conf_path": "",
+    }
+    target_file = APP_SETTINGS_FILE
+    if not target_file.exists():
+        alt = CONFIGS_DIR / "config.json"
+        if alt.exists():
+            target_file = alt
+        else:
+            return default_settings
+    try:
+        with open(target_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                default_settings.update(data)
+    except Exception as e:
+        logger.warning(f"Failed to load application settings: {e}")
+    return default_settings
+
+
+def save_app_settings(settings: dict) -> None:
+    """Save application settings to configs/settings.json"""
+    try:
+        CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
+        current = load_app_settings()
+        current.update(settings)
+        with open(APP_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(current, f, indent=2)
+        logger.info(f"Saved application settings to {APP_SETTINGS_FILE}")
+    except Exception as e:
+        logger.error(f"Failed to save application settings: {e}")
+
+
 # --- UTILITIES ---
-def get_rclone_path():
-    """Locate rclone binary in local folder or system PATH"""
+
+def get_default_rclone_path() -> tuple[str, bool]:
+    """Locate default rclone binary (portable BASE_DIR first, then system PATH).
+    Returns (path_string, exists_bool).
+    """
     local_bin = BASE_DIR / RCLONE_EXE
     if local_bin.exists():
-        return str(local_bin)
-    return shutil.which("rclone") or RCLONE_EXE
+        return str(local_bin.resolve()), True
+    sys_bin = shutil.which("rclone")
+    if sys_bin:
+        return sys_bin, True
+    return RCLONE_EXE, False
 
-OVERRIDES_DIR = REMOTES_DIR  # Per-remote override JSON files are kept in remotes/ for compatibility
+
+def get_rclone_path(ignore_custom: bool = False) -> str:
+    """Locate rclone binary in custom config, portable local folder, or system PATH."""
+    if not ignore_custom:
+        custom_path = load_app_settings().get("rclone_path", "").strip()
+        if custom_path:
+            p = Path(custom_path)
+            if p.is_file():
+                return str(p.resolve())
+            which_result = shutil.which(custom_path)
+            if which_result:
+                return which_result
+            logger.warning(f"Custom rclone executable not found: {custom_path}. Falling back to default.")
+
+    path, _ = get_default_rclone_path()
+    return path
+
 
 logger.info(f"BASE_DIR = {BASE_DIR}")
-logger.info(f"REMOTES_DIR = {REMOTES_DIR}")
+logger.info(f"CONFIGS_DIR = {CONFIGS_DIR}")
 logger.info(f"RCLONE PATH = {get_rclone_path()}")
 
 def get_icon_path():
@@ -156,40 +233,65 @@ def get_provider_info(remote_id: str, remote_type: str):
 
 # --- RCLONE.CONF DISCOVERY ---
 
-def resolve_rclone_conf() -> Path | None:
+def get_default_rclone_conf() -> Path | None:
     """
-    Locate the active rclone.conf file using the following priority order:
-    1. BASE_DIR/rclone.conf  (portable mode — takes precedence)
-    2. RCLONE_CONFIG environment variable
-    3. OS default paths: %APPDATA%/rclone/rclone.conf (Windows),
-       ~/.config/rclone/rclone.conf (Linux/macOS)
-    Returns the first existing path, or None if not found.
+    Locate active rclone.conf using default search hierarchy:
+    1. CONFIGS_DIR/rclone.conf (portable config folder)
+    2. BASE_DIR/rclone.conf    (portable root folder)
+    3. RCLONE_CONFIG environment variable
+    4. OS default paths:
+       - Windows: %APPDATA%/rclone/rclone.conf
+       - Linux/macOS: ~/.config/rclone/rclone.conf
+    Returns Path if found, otherwise None.
     """
-    # 1. Portable local copy
-    local = BASE_DIR / "rclone.conf"
-    if local.exists():
-        return local
+    # 1. Portable in configs/
+    in_configs = CONFIGS_DIR / "rclone.conf"
+    if in_configs.exists():
+        return in_configs.resolve()
 
-    # 2. Environment variable
+    # 2. Portable in root BASE_DIR/
+    in_base = BASE_DIR / "rclone.conf"
+    if in_base.exists():
+        return in_base.resolve()
+
+    # 3. Environment variable
     env_path = os.environ.get("RCLONE_CONFIG", "")
     if env_path:
         p = Path(env_path)
         if p.exists():
-            return p
+            return p.resolve()
 
-    # 3. OS default
+    # 4. OS default paths
     if platform.system() == "Windows":
         appdata = os.environ.get("APPDATA", "")
         if appdata:
             candidate = Path(appdata) / "rclone" / "rclone.conf"
             if candidate.exists():
-                return candidate
+                return candidate.resolve()
     else:
         candidate = Path.home() / ".config" / "rclone" / "rclone.conf"
         if candidate.exists():
-            return candidate
+            return candidate.resolve()
 
     return None
+
+
+def resolve_rclone_conf(ignore_custom: bool = False) -> Path | None:
+    """
+    Locate the active rclone.conf file:
+    - If ignore_custom is False, checks custom path from configs/settings.json first.
+    - Otherwise falls back to get_default_rclone_conf() (portable locations, then OS defaults).
+    Returns Path if exists, or None.
+    """
+    if not ignore_custom:
+        custom_conf = load_app_settings().get("rclone_conf_path", "").strip()
+        if custom_conf:
+            p = Path(custom_conf)
+            if p.is_file():
+                return p.resolve()
+            logger.warning(f"Custom rclone.conf not found: {custom_conf}. Falling back to default.")
+
+    return get_default_rclone_conf()
 
 
 def read_rclone_conf_remotes(conf_path: Path) -> list[dict]:
@@ -291,7 +393,7 @@ class RemoteController:
 
     Configuration is sourced directly from rclone.conf.  Per-remote mount
     settings (mountpoint, VFS flags, bandwidth, …) are persisted in a lightweight
-    JSON override file (remotes/<id>.override.json) rather than a .properties file.
+    JSON override file (configs/<id>.override.json) rather than a .properties file.
     """
 
     def __init__(self, remote_id: str, remote_type: str = "", conf_path: Path | None = None):
@@ -325,9 +427,15 @@ class RemoteController:
     def _load_defaults(self) -> dict:
         """Return mount parameters: global defaults merged with any saved JSON overrides."""
         params = dict(_DEFAULT_PARAMS)
-        if self.overrides_file.exists():
+        target_file = self.overrides_file
+        if not target_file.exists():
+            legacy_file = (BASE_DIR / "remotes") / f"{self.config_id}.override.json"
+            if legacy_file.exists():
+                target_file = legacy_file
+
+        if target_file.exists():
             try:
-                with open(self.overrides_file, "r", encoding="utf-8") as f:
+                with open(target_file, "r", encoding="utf-8") as f:
                     saved = json.load(f)
                     params.update(saved)
                 logger.info(f"Loaded overrides for {self.config_id}")
@@ -1475,10 +1583,10 @@ class RemoteWidget(QWidget):
             return
         
         rclone_path = get_rclone_path()
-        if not shutil.which(rclone_path):
+        if not (Path(rclone_path).is_file() or shutil.which(rclone_path)):
             QMessageBox.critical(self, "❌ Error", 
                 f"Rclone executable not found: {rclone_path}\n\n"
-                "Please install rclone or place it in the application folder.")
+                "Please install rclone, place it in the application folder, or configure its path in Settings (⚙️).")
             return
 
         cache_mode = self.combo_cache_mode.currentText().split()[0]
@@ -1631,6 +1739,335 @@ class RemoteWidget(QWidget):
                     self.log_viewer.verticalScrollBar().setValue(self.log_viewer.verticalScrollBar().maximum())
         except Exception as e:
             logger.error(f"Error reading log: {e}")
+
+# --- SETTINGS DIALOG ---
+
+class SettingsDialog(QDialog):
+    """Configuration dialog allowing the user to specify custom rclone executable and rclone.conf paths."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Settings — Rclone Mount Manager")
+        self.setModal(True)
+        self.setMinimumWidth(560)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #0c0e14;
+                color: #e2e8f0;
+            }
+            QLabel {
+                color: #e2e8f0;
+            }
+            QLineEdit {
+                background-color: #121620;
+                border: 1px solid #283042;
+                border-radius: 6px;
+                padding: 8px 10px;
+                color: #e2e8f0;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border-color: #38bdf8;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(14)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Dialog Header
+        header_layout = QVBoxLayout()
+        header_layout.setSpacing(4)
+        title_lbl = QLabel("⚙️ Application Configuration")
+        title_lbl.setFont(QFont("Segoe UI", 12, QFont.Bold))
+        title_lbl.setStyleSheet("color: #38bdf8;")
+        header_layout.addWidget(title_lbl)
+
+        sub_lbl = QLabel(
+            "Specify custom paths for the rclone executable and rclone.conf file.\n"
+            "Leave fields empty to use portable or default system paths."
+        )
+        sub_lbl.setFont(QFont("Segoe UI", 9))
+        sub_lbl.setStyleSheet("color: #94a3b8;")
+        header_layout.addWidget(sub_lbl)
+        layout.addLayout(header_layout)
+
+        # CARD 1: RCLONE EXECUTABLE
+        card_exe = ModernCard()
+        card_exe_layout = QVBoxLayout(card_exe)
+        card_exe_layout.setSpacing(8)
+        card_exe_layout.setContentsMargins(14, 14, 14, 14)
+
+        lbl_exe_title = QLabel("📦 Rclone Executable Path")
+        lbl_exe_title.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        lbl_exe_title.setStyleSheet("color: #f1f5f9;")
+        card_exe_layout.addWidget(lbl_exe_title)
+
+        row_exe = QHBoxLayout()
+        row_exe.setSpacing(8)
+        self.edit_rclone_path = QLineEdit()
+        self.edit_rclone_path.setPlaceholderText("Auto-detect (portable BASE_DIR or system PATH)")
+        self.edit_rclone_path.textChanged.connect(self._update_status)
+        row_exe.addWidget(self.edit_rclone_path, 1)
+
+        self.btn_browse_exe = QPushButton("Browse...")
+        self.btn_browse_exe.setCursor(Qt.PointingHandCursor)
+        self.btn_browse_exe.setStyleSheet("""
+            QPushButton {
+                background-color: #171b26;
+                border: 1px solid #283042;
+                border-radius: 6px;
+                padding: 7px 12px;
+                color: #cbd5e1;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #202736;
+                border-color: #38bdf8;
+                color: #ffffff;
+            }
+        """)
+        self.btn_browse_exe.clicked.connect(self._browse_rclone_exe)
+        row_exe.addWidget(self.btn_browse_exe)
+        card_exe_layout.addLayout(row_exe)
+
+        self.lbl_exe_status = QLabel()
+        self.lbl_exe_status.setFont(QFont("Segoe UI", 8))
+        self.lbl_exe_status.setWordWrap(True)
+        card_exe_layout.addWidget(self.lbl_exe_status)
+        layout.addWidget(card_exe)
+
+        # CARD 2: RCLONE CONFIG FILE
+        card_conf = ModernCard()
+        card_conf_layout = QVBoxLayout(card_conf)
+        card_conf_layout.setSpacing(8)
+        card_conf_layout.setContentsMargins(14, 14, 14, 14)
+
+        lbl_conf_title = QLabel("📄 Rclone Config File (rclone.conf)")
+        lbl_conf_title.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        lbl_conf_title.setStyleSheet("color: #f1f5f9;")
+        card_conf_layout.addWidget(lbl_conf_title)
+
+        row_conf = QHBoxLayout()
+        row_conf.setSpacing(8)
+        self.edit_rclone_conf = QLineEdit()
+        self.edit_rclone_conf.setPlaceholderText("Auto-detect (configs/rclone.conf, BASE_DIR, or OS default)")
+        self.edit_rclone_conf.textChanged.connect(self._update_status)
+        row_conf.addWidget(self.edit_rclone_conf, 1)
+
+        self.btn_browse_conf = QPushButton("Browse...")
+        self.btn_browse_conf.setCursor(Qt.PointingHandCursor)
+        self.btn_browse_conf.setStyleSheet("""
+            QPushButton {
+                background-color: #171b26;
+                border: 1px solid #283042;
+                border-radius: 6px;
+                padding: 7px 12px;
+                color: #cbd5e1;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #202736;
+                border-color: #38bdf8;
+                color: #ffffff;
+            }
+        """)
+        self.btn_browse_conf.clicked.connect(self._browse_rclone_conf)
+        row_conf.addWidget(self.btn_browse_conf)
+        card_conf_layout.addLayout(row_conf)
+
+        self.lbl_conf_status = QLabel()
+        self.lbl_conf_status.setFont(QFont("Segoe UI", 8))
+        self.lbl_conf_status.setWordWrap(True)
+        card_conf_layout.addWidget(self.lbl_conf_status)
+        layout.addWidget(card_conf)
+
+        # CARD 3: CONFIGS DIRECTORY INFO
+        card_dir = ModernCard()
+        card_dir_layout = QHBoxLayout(card_dir)
+        card_dir_layout.setSpacing(10)
+        card_dir_layout.setContentsMargins(14, 12, 14, 12)
+
+        dir_info_layout = QVBoxLayout()
+        dir_info_layout.setSpacing(2)
+        lbl_dir_title = QLabel("📁 Configurations & Overrides Folder")
+        lbl_dir_title.setFont(QFont("Segoe UI", 9, QFont.Bold))
+        lbl_dir_title.setStyleSheet("color: #cbd5e1;")
+        dir_info_layout.addWidget(lbl_dir_title)
+
+        self.lbl_dir_path = QLabel(str(CONFIGS_DIR))
+        self.lbl_dir_path.setFont(QFont("Segoe UI", 8))
+        self.lbl_dir_path.setStyleSheet("color: #64748b;")
+        dir_info_layout.addWidget(self.lbl_dir_path)
+        card_dir_layout.addLayout(dir_info_layout, 1)
+
+        btn_open_folder = QPushButton("Open Folder")
+        btn_open_folder.setCursor(Qt.PointingHandCursor)
+        btn_open_folder.setStyleSheet("""
+            QPushButton {
+                background-color: #171b26;
+                border: 1px solid #283042;
+                border-radius: 6px;
+                padding: 7px 12px;
+                color: #cbd5e1;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #202736;
+                border-color: #38bdf8;
+                color: #ffffff;
+            }
+        """)
+        btn_open_folder.clicked.connect(self._open_configs_folder)
+        card_dir_layout.addWidget(btn_open_folder)
+        layout.addWidget(card_dir)
+
+        # FOOTER ACTION BUTTONS
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+
+        self.btn_reset = QPushButton("Reset to Defaults")
+        self.btn_reset.setCursor(Qt.PointingHandCursor)
+        self.btn_reset.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: 1px solid #334155;
+                border-radius: 6px;
+                padding: 8px 14px;
+                color: #94a3b8;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #1e2533;
+                border-color: #64748b;
+                color: #f1f5f9;
+            }
+        """)
+        self.btn_reset.clicked.connect(self._reset_defaults)
+        btn_row.addWidget(self.btn_reset)
+
+        btn_row.addStretch()
+
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setCursor(Qt.PointingHandCursor)
+        self.btn_cancel.setStyleSheet("""
+            QPushButton {
+                background-color: #171b26;
+                border: 1px solid #283042;
+                border-radius: 6px;
+                padding: 8px 16px;
+                color: #cbd5e1;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #202736;
+                color: #ffffff;
+            }
+        """)
+        self.btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(self.btn_cancel)
+
+        self.btn_save = ModernButton("Save Settings", color="#10b981", min_height=36)
+        self.btn_save.clicked.connect(self._save_and_close)
+        btn_row.addWidget(self.btn_save)
+
+        layout.addLayout(btn_row)
+
+        self._load_current_settings()
+
+    def _load_current_settings(self):
+        settings = load_app_settings()
+        self.edit_rclone_path.setText(settings.get("rclone_path", ""))
+        self.edit_rclone_conf.setText(settings.get("rclone_conf_path", ""))
+        self._update_status()
+
+    def _update_status(self):
+        # Executable status
+        custom_exe = self.edit_rclone_path.text().strip()
+        default_exe, default_exe_exists = get_default_rclone_path()
+        if not custom_exe:
+            if default_exe_exists:
+                self.lbl_exe_status.setText(f"Default detected: {default_exe}")
+                self.lbl_exe_status.setStyleSheet("color: #10b981;")
+            else:
+                self.lbl_exe_status.setText(f"Default not found ({default_exe}). Specify path or place rclone in application folder.")
+                self.lbl_exe_status.setStyleSheet("color: #fbbf24;")
+        else:
+            p = Path(custom_exe)
+            if p.is_file():
+                self.lbl_exe_status.setText(f"✓ Valid executable: {p.resolve()}")
+                self.lbl_exe_status.setStyleSheet("color: #10b981;")
+            elif shutil.which(custom_exe):
+                self.lbl_exe_status.setText(f"✓ Valid command in PATH: {shutil.which(custom_exe)}")
+                self.lbl_exe_status.setStyleSheet("color: #10b981;")
+            else:
+                self.lbl_exe_status.setText(f"⚠️ Executable file not found: {custom_exe}")
+                self.lbl_exe_status.setStyleSheet("color: #f87171;")
+
+        # Conf status
+        custom_conf = self.edit_rclone_conf.text().strip()
+        default_conf = get_default_rclone_conf()
+        if not custom_conf:
+            if default_conf and default_conf.exists():
+                self.lbl_conf_status.setText(f"Default detected: {default_conf}")
+                self.lbl_conf_status.setStyleSheet("color: #10b981;")
+            else:
+                self.lbl_conf_status.setText("Default rclone.conf not found. You can place it in configs/ or specify path.")
+                self.lbl_conf_status.setStyleSheet("color: #fbbf24;")
+        else:
+            p = Path(custom_conf)
+            if p.is_file():
+                self.lbl_conf_status.setText(f"✓ Valid configuration file: {p.resolve()}")
+                self.lbl_conf_status.setStyleSheet("color: #10b981;")
+            else:
+                self.lbl_conf_status.setText(f"⚠️ Configuration file not found: {custom_conf}")
+                self.lbl_conf_status.setStyleSheet("color: #f87171;")
+
+    def _browse_rclone_exe(self):
+        curr = self.edit_rclone_path.text().strip()
+        start_dir = str(Path(curr).parent) if curr and Path(curr).parent.exists() else str(BASE_DIR)
+        file_filter = "Executable Files (*.exe);;All Files (*.*)" if platform.system() == "Windows" else "All Files (*)"
+        selected, _ = QFileDialog.getOpenFileName(self, "Select Rclone Executable", start_dir, file_filter)
+        if selected:
+            self.edit_rclone_path.setText(str(Path(selected).resolve()))
+
+    def _browse_rclone_conf(self):
+        curr = self.edit_rclone_conf.text().strip()
+        if curr and Path(curr).parent.exists():
+            start_dir = str(Path(curr).parent)
+        elif (CONFIGS_DIR / "rclone.conf").exists():
+            start_dir = str(CONFIGS_DIR)
+        elif (BASE_DIR / "rclone.conf").exists():
+            start_dir = str(BASE_DIR)
+        else:
+            start_dir = str(CONFIGS_DIR)
+        selected, _ = QFileDialog.getOpenFileName(self, "Select rclone.conf File", start_dir, "Config Files (*.conf);;All Files (*.*)")
+        if selected:
+            self.edit_rclone_conf.setText(str(Path(selected).resolve()))
+
+    def _reset_defaults(self):
+        self.edit_rclone_path.clear()
+        self.edit_rclone_conf.clear()
+        self._update_status()
+
+    def _open_configs_folder(self):
+        CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
+        if platform.system() == "Windows":
+            os.startfile(str(CONFIGS_DIR))
+        else:
+            subprocess.Popen(["xdg-open", str(CONFIGS_DIR)])
+
+    def _save_and_close(self):
+        rclone_path = self.edit_rclone_path.text().strip()
+        rclone_conf = self.edit_rclone_conf.text().strip()
+        save_app_settings({
+            "rclone_path": rclone_path,
+            "rclone_conf_path": rclone_conf,
+        })
+        self.accept()
+
 
 # --- MAIN WINDOW ---
 
@@ -1874,6 +2311,7 @@ class MainWindow(QMainWindow):
         self.btn_open_config = QPushButton("⚙️")
         self.btn_open_config.setFixedSize(34, 34)
         self.btn_open_config.setCursor(Qt.PointingHandCursor)
+        self.btn_open_config.setToolTip("Settings (Configure Paths)")
         self.btn_open_config.setStyleSheet("""
             QPushButton {
                 background-color: #171b26;
@@ -1887,7 +2325,8 @@ class MainWindow(QMainWindow):
                 border-color: #38bdf8;
             }
         """)
-        self.btn_open_config.clicked.connect(self.on_open_config_folder)
+        self.btn_open_config.clicked.connect(self.open_settings_dialog)
+        self.btn_settings = self.btn_open_config
         footer_layout.addWidget(self.btn_open_config)
         
         sidebar_layout.addWidget(footer, 0)
@@ -1938,10 +2377,11 @@ class MainWindow(QMainWindow):
         
         conf_path = resolve_rclone_conf()
         conf_name = conf_path.name if conf_path else "rclone.conf (not found)"
-        conf_lbl = QLabel(f"Config: {conf_name}")
-        conf_lbl.setFont(QFont("Segoe UI", 8))
-        conf_lbl.setStyleSheet("color: #64748b;")
-        bottom_layout.addWidget(conf_lbl)
+        self.lbl_conf_status = QLabel(f"Config: {conf_name}")
+        self.lbl_conf_status.setFont(QFont("Segoe UI", 8))
+        self.lbl_conf_status.setStyleSheet("color: #64748b;")
+        self.lbl_conf_status.setToolTip(str(conf_path) if conf_path else "rclone.conf not found")
+        bottom_layout.addWidget(self.lbl_conf_status)
         
         bottom_layout.addStretch()
         
@@ -1993,6 +2433,10 @@ class MainWindow(QMainWindow):
         show_action.triggered.connect(self.show)
         tray_menu.addAction(show_action)
         
+        settings_action = QAction("Settings...", self)
+        settings_action.triggered.connect(self.open_settings_dialog)
+        tray_menu.addAction(settings_action)
+
         tray_menu.addSeparator()
         
         quit_action = QAction("Quit", self)
@@ -2169,12 +2613,25 @@ class MainWindow(QMainWindow):
                 f"Run the following command manually to add or edit remotes:\n\n{rclone} config",
             )
 
+    def open_settings_dialog(self):
+        """Open application settings dialog to configure rclone and rclone.conf paths."""
+        dialog = SettingsDialog(self)
+        if dialog.exec():
+            # Refresh remotes with newly configured or updated paths
+            self.refresh_remotes()
+            conf_path = resolve_rclone_conf()
+            conf_name = conf_path.name if conf_path else "rclone.conf (not found)"
+            if hasattr(self, "lbl_conf_status"):
+                self.lbl_conf_status.setText(f"Config: {conf_name}")
+                self.lbl_conf_status.setToolTip(str(conf_path) if conf_path else "rclone.conf not found")
+
     def on_open_config_folder(self):
-        """Open application directory in file manager"""
+        """Open configs directory in file manager"""
+        CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
         if platform.system() == "Windows":
-            os.startfile(str(BASE_DIR))
+            os.startfile(str(CONFIGS_DIR))
         else:
-            subprocess.Popen(["xdg-open", str(BASE_DIR)])
+            subprocess.Popen(["xdg-open", str(CONFIGS_DIR)])
 
     def auto_mount_launch_remotes(self):
         """Mount remotes marked with auto_mount=True on application launch"""
